@@ -474,7 +474,7 @@ class VisitCreateView(QWidget):
             row = selected_items[0].row()
             diag = list_widget.item(row, 0).data(Qt.ItemDataRole.UserRole)
             
-            dlg2 = ModernInputDialog(dialog, “修改名称”, f”请输入”{diag['name']}”的新名称:”, default_text=diag['name'])
+            dlg2 = ModernInputDialog(dialog, "修改名称", f"请输入"{diag['name']}"的新名称:", default_text=diag['name'])
             if dlg2.exec() == QDialog.DialogCode.Accepted and (new_name := dlg2.get_text()) and new_name != diag['name']:
                 res = api_client.put(f"/diagnosis-types/{diag['id']}", {"name": new_name})
                 if res.status_code == 200 and res.json()['code'] == 200:
