@@ -112,7 +112,9 @@ class MainWindow(QMainWindow):
         for text, index, notifiable in menus:
             if notifiable:
                 btn = BadgedSidebarButton(text)
-                self._badged_buttons[text] = btn
+                # 用纯文字（去 emoji 前缀）作徽标查找 key，因为通知代码不知道 emoji
+                plain = text.split(" ", 1)[-1] if " " in text else text
+                self._badged_buttons[plain] = btn
             else:
                 btn = SidebarButton(text)
             btn.clicked.connect(lambda checked, idx=index, t=text: self.switch_view(idx, t))
@@ -211,9 +213,9 @@ class MainWindow(QMainWindow):
 
     def _find_menu_index(self, text):
         for i, btn in enumerate(self.menu_buttons):
-            if hasattr(btn, '_base_text') and btn._base_text == text:
+            if hasattr(btn, '_base_text') and text in btn._base_text:
                 return i
-            if btn.text() == text:
+            if text in btn.text():
                 return i
         return 0
 
