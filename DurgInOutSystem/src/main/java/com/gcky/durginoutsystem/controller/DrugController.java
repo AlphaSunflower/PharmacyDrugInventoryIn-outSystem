@@ -91,6 +91,9 @@ public class DrugController {
     }
 
     // 修改批次库存
+    @Autowired
+    private com.gcky.durginoutsystem.service.DrugStockService drugStockService;
+
     @Log("修改批次库存")
     @PutMapping("/batch/{batchId}/stock")
     public Result<String> updateBatchStock(@PathVariable Long batchId, @RequestParam Integer quantity) {
@@ -103,30 +106,9 @@ public class DrugController {
         drugBatchMapper.updateById(batch);
 
         // 同步更新总库存
-        updateDrugTotalStock(batch.getDrugId());
+        drugStockService.updateDrugTotalStock(batch.getDrugId());
 
         return Result.success("库存更新成功");
-    }
-
-    /**
-     * 重新计算并更新药品总库存
-     */
-    private void updateDrugTotalStock(Long drugId) {
-        QueryWrapper<com.gcky.durginoutsystem.entity.DrugBatch> query = new QueryWrapper<>();
-        query.eq("drug_id", drugId);
-        query.select("IFNULL(SUM(stock_quantity), 0) as total");
-
-        java.util.Map<String, Object> result = drugBatchMapper.selectMaps(query).stream().findFirst().orElse(null);
-        int totalStock = 0;
-        if (result != null && result.get("total") != null) {
-            totalStock = ((java.math.BigDecimal) result.get("total")).intValue();
-        }
-
-        Drug drug = new Drug();
-        drug.setId(drugId);
-        drug.setStockQuantity(totalStock);
-        drug.setUpdatedAt(LocalDateTime.now());
-        drugMapper.updateById(drug);
     }
 
     // 修改药品

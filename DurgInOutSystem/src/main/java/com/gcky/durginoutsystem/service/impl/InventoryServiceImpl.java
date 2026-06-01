@@ -32,6 +32,8 @@ public class InventoryServiceImpl implements InventoryService {
     private DrugMapper drugMapper;
     @Autowired
     private com.gcky.durginoutsystem.mapper.DrugBatchMapper drugBatchMapper;
+    @Autowired
+    private com.gcky.durginoutsystem.service.DrugStockService drugStockService;
 
     @Override
     @Transactional(rollbackFor = Exception.class)
@@ -190,31 +192,10 @@ public class InventoryServiceImpl implements InventoryService {
                     
                     // 更新总库存 (基于批次重新计算，确保一致)
                     // drug.setStockQuantity(detail.getActualStock()); // 旧逻辑：直接使用盘点值
-                    updateDrugTotalStock(drug.getId());
+                    drugStockService.updateDrugTotalStock(drug.getId());
                 }
             }
         }
-    }
-
-    /**
-     * 重新计算并更新药品总库存 (基于所有批次库存之和)
-     */
-    private void updateDrugTotalStock(Long drugId) {
-        QueryWrapper<com.gcky.durginoutsystem.entity.DrugBatch> query = new QueryWrapper<>();
-        query.eq("drug_id", drugId);
-        query.select("IFNULL(SUM(stock_quantity), 0) as total");
-        
-        Map<String, Object> result = drugBatchMapper.selectMaps(query).stream().findFirst().orElse(null);
-        int totalStock = 0;
-        if (result != null && result.get("total") != null) {
-            totalStock = ((BigDecimal) result.get("total")).intValue();
-        }
-        
-        Drug drug = new Drug();
-        drug.setId(drugId);
-        drug.setStockQuantity(totalStock);
-        drug.setUpdatedAt(LocalDateTime.now());
-        drugMapper.updateById(drug);
     }
 
     /**

@@ -20,6 +20,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -39,6 +40,8 @@ public class VisitServiceImpl implements VisitService {
     private DiagnosisTypeMapper diagnosisTypeMapper;
     @Autowired
     private com.gcky.durginoutsystem.mapper.DrugBatchMapper drugBatchMapper;
+    @Autowired
+    private com.gcky.durginoutsystem.service.DrugStockService drugStockService;
 
     @Override
     @Transactional(rollbackFor = Exception.class)
@@ -166,23 +169,59 @@ public class VisitServiceImpl implements VisitService {
         wrapper.orderByDesc("created_at");
         
         Page<PatientVisit> resultPage = visitMapper.selectPage(p, wrapper);
-        
-        // 转换为 Map 并填充关联信息 (简单实现)
+        List<PatientVisit> visitList = resultPage.getRecords();
+
+        // 批量预加载关联数据，避免 N+1 查询
+        List<Long> visitIds = visitList.stream().map(PatientVisit::getId).collect(Collectors.toList());
+
+        // 批量查诊断类型
+        Map<Long, String> diagnosisNameMap = new HashMap<>();
+        if (!visitList.isEmpty()) {
+            List<Long> diagIds = visitList.stream().map(PatientVisit::getDiagnosisId).filter(id -> id != null).distinct().collect(Collectors.toList());
+            if (!diagIds.isEmpty()) {
+                List<DiagnosisType> diagTypes = diagnosisTypeMapper.selectBatchIds(diagIds);
+                for (DiagnosisType dt : diagTypes) {
+                    diagnosisNameMap.put(dt.getId(), dt.getName());
+                }
+            }
+        }
+
+        // 批量查 visit_drugs
+        final Map<Long, List<VisitDrug>> visitDrugMap;
+        final Map<Long, Drug> drugMap;
+        if (!visitIds.isEmpty()) {
+            QueryWrapper<VisitDrug> vdWrapper = new QueryWrapper<>();
+            vdWrapper.in("visit_id", visitIds);
+            List<VisitDrug> allVisitDrugs = visitDrugMapper.selectList(vdWrapper);
+            visitDrugMap = allVisitDrugs.stream().collect(Collectors.groupingBy(VisitDrug::getVisitId));
+
+            // 批量查药品
+            List<Long> drugIds = allVisitDrugs.stream().map(VisitDrug::getDrugId).distinct().collect(Collectors.toList());
+            if (!drugIds.isEmpty()) {
+                List<Drug> drugList = drugMapper.selectBatchIds(drugIds);
+                Map<Long, Drug> dm = new HashMap<>();
+                for (Drug d : drugList) {
+                    dm.put(d.getId(), d);
+                }
+                drugMap = dm;
+            } else {
+                drugMap = Collections.emptyMap();
+            }
+        } else {
+            visitDrugMap = Collections.emptyMap();
+            drugMap = Collections.emptyMap();
+        }
+
         Page<Map<String, Object>> mapPage = new Page<>(page, size, resultPage.getTotal());
-        List<Map<String, Object>> records = resultPage.getRecords().stream().map(visit -> {
+        List<Map<String, Object>> records = visitList.stream().map(visit -> {
             Map<String, Object> map = new HashMap<>();
-            // 使用 BeanUtils.copyProperties 将属性复制到 Map 是不可行的，BeanUtils 只能用于 Bean 之间
-            // 正确做法是手动 put 或者将 Bean 转为 Map
-            // 这里我们使用手动 put 关键字段，或者使用 Jackson/Fastjson 转 Map
-            // 简单起见，我们手动 put 所有字段
             map.put("id", visit.getId());
             map.put("patientName", visit.getPatientName());
             map.put("visitDate", visit.getVisitDate());
             map.put("status", visit.getStatus());
             map.put("diagnosisId", visit.getDiagnosisId());
             if (visit.getDiagnosisId() != null) {
-                DiagnosisType dt = diagnosisTypeMapper.selectById(visit.getDiagnosisId());
-                map.put("diagnosisName", dt != null ? dt.getName() : "");
+                map.put("diagnosisName", diagnosisNameMap.getOrDefault(visit.getDiagnosisId(), ""));
             } else if (visit.getCustomDiagnosis() != null) {
                 map.put("diagnosisName", visit.getCustomDiagnosis() + " (自定义)");
             } else {
@@ -191,41 +230,26 @@ public class VisitServiceImpl implements VisitService {
 
             map.put("returnReason", visit.getReturnReason());
             map.put("doctorId", visit.getDoctorId());
-
             map.put("gender", visit.getGender());
             map.put("age", visit.getAge());
             map.put("department", visit.getDepartment());
-            
-            // 填充药品列表
-            QueryWrapper<VisitDrug> drugWrapper = new QueryWrapper<>();
-            drugWrapper.eq("visit_id", visit.getId());
-            List<VisitDrug> drugs = visitDrugMapper.selectList(drugWrapper);
-            
-            List<Map<String, Object>> drugDetails = drugs.stream().map(d -> {
+
+            // 从预加载 Map 填充药品列表
+            List<VisitDrug> visitDrugs = visitDrugMap.getOrDefault(visit.getId(), Collections.emptyList());
+            List<Map<String, Object>> drugDetails = visitDrugs.stream().map(d -> {
                 Map<String, Object> dm = new HashMap<>();
-                // BeanUtils.copyProperties(d, dm); // BeanUtils copy properties to Map is not working as expected
                 dm.put("id", d.getId());
                 dm.put("visitId", d.getVisitId());
                 dm.put("drugId", d.getDrugId());
                 dm.put("quantity", d.getQuantity());
                 dm.put("amount", d.getAmount());
-                
-                Drug drug = drugMapper.selectById(d.getDrugId());
+
+                Drug drug = drugMap.get(d.getDrugId());
                 dm.put("drugName", drug != null ? drug.getName() : "Unknown");
                 dm.put("drugSpec", drug != null ? drug.getSpec() : "");
-                
-                // Add fields expected by frontend
                 dm.put("spec", drug != null ? drug.getSpec() : "");
-                
-                // 优先使用记录的实际单价，否则使用参考价
-                if (d.getPrice() != null) {
-                    dm.put("price", d.getPrice());
-                } else {
-                    dm.put("price", drug != null ? drug.getPrice() : BigDecimal.ZERO);
-                }
-                // batchId 已废弃
+                dm.put("price", d.getPrice() != null ? d.getPrice() : (drug != null ? drug.getPrice() : BigDecimal.ZERO));
                 dm.put("batchId", null);
-                
                 return dm;
             }).collect(Collectors.toList());
 
@@ -254,15 +278,9 @@ public class VisitServiceImpl implements VisitService {
             Drug drug = drugMapper.selectById(vd.getDrugId());
             if (drug == null) throw new RuntimeException("药品不存在");
 
-            // FIFO 动态扣减逻辑
+            // FIFO 动态扣减逻辑（加行锁防并发）
             int needed = vd.getQuantity();
-            
-            // 查询所有有效批次 (FIFO)
-            QueryWrapper<com.gcky.durginoutsystem.entity.DrugBatch> batchQuery = new QueryWrapper<>();
-            batchQuery.eq("drug_id", drug.getId())
-                      .gt("stock_quantity", 0)
-                      .orderByAsc("created_at");
-            List<com.gcky.durginoutsystem.entity.DrugBatch> batches = drugBatchMapper.selectList(batchQuery);
+            List<com.gcky.durginoutsystem.entity.DrugBatch> batches = drugBatchMapper.selectBatchesForUpdate(drug.getId());
             
             for (com.gcky.durginoutsystem.entity.DrugBatch batch : batches) {
                 if (needed <= 0) break;
@@ -281,36 +299,13 @@ public class VisitServiceImpl implements VisitService {
             }
 
             // 同步更新 Drug 总库存 (基于所有批次的总和)
-            updateDrugTotalStock(drug.getId());
+            drugStockService.updateDrugTotalStock(drug.getId());
         }
 
         // 2. 更新状态
         visit.setStatus("COMPLETED");
         visit.setUpdatedAt(LocalDateTime.now());
         visitMapper.updateById(visit);
-    }
-
-    /**
-     * 重新计算并更新药品总库存 (基于所有批次库存之和)
-     */
-    private void updateDrugTotalStock(Long drugId) {
-        QueryWrapper<com.gcky.durginoutsystem.entity.DrugBatch> query = new QueryWrapper<>();
-        query.eq("drug_id", drugId);
-        // 注意：这里需要统计所有批次，包括库存为0的(如果没删的话)，或者只统计 > 0 的
-        // 建议只统计 > 0 的，假设 <= 0 的批次库存确实为0
-        query.select("IFNULL(SUM(stock_quantity), 0) as total");
-        
-        Map<String, Object> result = drugBatchMapper.selectMaps(query).stream().findFirst().orElse(null);
-        int totalStock = 0;
-        if (result != null && result.get("total") != null) {
-            totalStock = ((BigDecimal) result.get("total")).intValue();
-        }
-        
-        Drug drug = new Drug();
-        drug.setId(drugId);
-        drug.setStockQuantity(totalStock);
-        drug.setUpdatedAt(LocalDateTime.now());
-        drugMapper.updateById(drug);
     }
 
     @Override
@@ -332,7 +327,7 @@ public class VisitServiceImpl implements VisitService {
                 restoreToLatestBatch(vd.getDrugId(), vd.getQuantity(), vd.getPrice());
 
                 // 恢复总库存 (重新计算)
-                updateDrugTotalStock(vd.getDrugId());
+                drugStockService.updateDrugTotalStock(vd.getDrugId());
             }
         }
         

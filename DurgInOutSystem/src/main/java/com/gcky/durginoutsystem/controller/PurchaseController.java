@@ -34,6 +34,8 @@ public class PurchaseController {
     private DrugMapper drugMapper;
     @Autowired
     private com.gcky.durginoutsystem.mapper.DrugBatchMapper drugBatchMapper;
+    @Autowired
+    private com.gcky.durginoutsystem.service.DrugStockService drugStockService;
 
     // 获取某月的购进记录
     @GetMapping
@@ -113,29 +115,10 @@ public class PurchaseController {
                 drugMapper.updateById(drug);
                 
                 // 新逻辑：重新计算所有批次总和 (确保一致性)
-                updateDrugTotalStock(drug.getId());
+                drugStockService.updateDrugTotalStock(drug.getId());
             }
         }
         return Result.success("购进登记成功，库存已更新");
     }
 
-    /**
-     * 重新计算并更新药品总库存
-     */
-    private void updateDrugTotalStock(Long drugId) {
-        QueryWrapper<com.gcky.durginoutsystem.entity.DrugBatch> query = new QueryWrapper<>();
-        query.eq("drug_id", drugId);
-        query.select("IFNULL(SUM(stock_quantity), 0) as total");
-        
-        Map<String, Object> result = drugBatchMapper.selectMaps(query).stream().findFirst().orElse(null);
-        int totalStock = 0;
-        if (result != null && result.get("total") != null) {
-            totalStock = ((java.math.BigDecimal) result.get("total")).intValue();
-        }
-        
-        Drug drug = new Drug();
-        drug.setId(drugId);
-        drug.setStockQuantity(totalStock);
-        drugMapper.updateById(drug);
-    }
 }

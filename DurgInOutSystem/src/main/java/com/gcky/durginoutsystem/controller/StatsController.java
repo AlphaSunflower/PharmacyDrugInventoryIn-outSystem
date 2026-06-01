@@ -443,47 +443,55 @@ public class StatsController {
             isLastYearStockMissing = true;
         }
 
-        // 4. 计算期末库存金额 (累加本年每个月的期末实盘金额)
+        // 4. 计算期末库存金额 (取最近一个已完成盘点月份的期末实盘金额，而非累加所有月份)
         BigDecimal finalStockAmount = BigDecimal.ZERO;
         List<String> missingMonths = new ArrayList<>();
-        
-        for (int m = 1; m <= 12; m++) {
+
+        // 从12月倒推，找到最近一个已完成的盘点月份
+        String latestCheckedMonth = null;
+        InventoryCheckTask latestCompletedTask = null;
+        for (int m = 12; m >= 1; m--) {
             String monthStr = String.format("%s-%02d", year, m);
-            // 如果月份还未到，跳过检查
-            if (LocalDate.parse(monthStr + "-01").isAfter(LocalDate.now())) {
-                continue;
-            }
-            
             QueryWrapper<InventoryCheckTask> taskWrapper = new QueryWrapper<>();
             taskWrapper.eq("month", monthStr);
             taskWrapper.eq("status", "COMPLETED");
             InventoryCheckTask task = inventoryTaskMapper.selectOne(taskWrapper);
-            
             if (task != null) {
-                QueryWrapper<InventoryCheckDetail> detailWrapper = new QueryWrapper<>();
-                detailWrapper.eq("task_id", task.getId());
-                List<InventoryCheckDetail> details = inventoryDetailMapper.selectList(detailWrapper);
-                
-                for (InventoryCheckDetail d : details) {
-                    if (!validDrugIds.contains(d.getDrugId())) continue;
+                latestCheckedMonth = monthStr;
+                latestCompletedTask = task;
+                break;
+            }
+        }
 
-                    if (d.getActualAmount() != null) {
-                        finalStockAmount = finalStockAmount.add(d.getActualAmount());
-                    } else if (d.getActualStock() != null) {
-                        Drug drug = drugMapper.selectById(d.getDrugId());
-                        if (drug != null) {
-                            finalStockAmount = finalStockAmount.add(drug.getPrice().multiply(new BigDecimal(d.getActualStock())));
-                        }
+        // 取最近完成盘点月份的期末金额
+        if (latestCompletedTask != null) {
+            QueryWrapper<InventoryCheckDetail> detailWrapper = new QueryWrapper<>();
+            detailWrapper.eq("task_id", latestCompletedTask.getId());
+            List<InventoryCheckDetail> details = inventoryDetailMapper.selectList(detailWrapper);
+
+            for (InventoryCheckDetail d : details) {
+                if (!validDrugIds.contains(d.getDrugId())) continue;
+                if (d.getActualAmount() != null) {
+                    finalStockAmount = finalStockAmount.add(d.getActualAmount());
+                } else if (d.getActualStock() != null) {
+                    Drug drug = drugMapper.selectById(d.getDrugId());
+                    if (drug != null) {
+                        finalStockAmount = finalStockAmount.add(drug.getPrice().multiply(new BigDecimal(d.getActualStock())));
                     }
                 }
-            } else {
-                // 如果当月已过但未盘点，记录缺失月份
-                if (LocalDate.parse(monthStr + "-01").isBefore(LocalDate.now().withDayOfMonth(1))) {
-                    missingMonths.add(monthStr);
-                } else if (LocalDate.now().toString().startsWith(monthStr)) {
-                    // 当前月也算缺失
-                     missingMonths.add(monthStr);
-                }
+            }
+        }
+
+        // 收集所有已过期但未盘点的月份
+        for (int m = 1; m <= 12; m++) {
+            String monthStr = String.format("%s-%02d", year, m);
+            if (LocalDate.parse(monthStr + "-01").isAfter(LocalDate.now())) continue;
+
+            QueryWrapper<InventoryCheckTask> taskWrapper = new QueryWrapper<>();
+            taskWrapper.eq("month", monthStr);
+            taskWrapper.eq("status", "COMPLETED");
+            if (inventoryTaskMapper.selectCount(taskWrapper) == 0) {
+                missingMonths.add(monthStr);
             }
         }
 

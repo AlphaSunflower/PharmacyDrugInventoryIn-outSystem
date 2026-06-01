@@ -57,10 +57,19 @@ public class UserController {
     @Log("修改系统用户")
     @PutMapping("/{id}")
     public Result<String> updateUser(@PathVariable Long id, @RequestBody User user) {
-        user.setId(id);
-        // 不允许修改用户名
-        user.setUsername(null);
-        userMapper.updateById(user);
+        com.baomidou.mybatisplus.core.conditions.update.UpdateWrapper<User> updateWrapper =
+                new com.baomidou.mybatisplus.core.conditions.update.UpdateWrapper<>();
+        updateWrapper.eq("id", id);
+        if (user.getRealName() != null) {
+            updateWrapper.set("real_name", user.getRealName());
+        }
+        if (user.getRole() != null) {
+            updateWrapper.set("role", user.getRole());
+        }
+        if (user.getPassword() != null && !user.getPassword().isEmpty()) {
+            updateWrapper.set("password", user.getPassword());
+        }
+        userMapper.update(null, updateWrapper);
         return Result.success("用户信息更新成功");
     }
 
