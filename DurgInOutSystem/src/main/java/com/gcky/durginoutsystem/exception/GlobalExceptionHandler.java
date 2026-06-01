@@ -29,7 +29,15 @@ public class GlobalExceptionHandler {
                 .body(Result.error(400, errors));
     }
 
-    /** 业务异常（如库存不足）— 返回 HTTP 400 + 业务消息 */
+    /** 业务异常（如库存不足、状态不正确）— 返回 HTTP 400 + 业务消息 */
+    @ExceptionHandler(BusinessException.class)
+    public ResponseEntity<Result<String>> handleBusinessException(BusinessException e) {
+        log.warn("业务异常: {}", e.getMessage());
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                .body(Result.error(400, e.getMessage()));
+    }
+
+    /** 其他运行时异常 — 返回 HTTP 500 */
     @ExceptionHandler(RuntimeException.class)
     public ResponseEntity<Result<String>> handleRuntimeException(RuntimeException e) {
         log.warn("业务异常: {}", e.getMessage());

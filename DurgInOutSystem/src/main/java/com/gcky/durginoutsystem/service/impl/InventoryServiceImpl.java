@@ -8,6 +8,7 @@ import com.gcky.durginoutsystem.entity.InventoryCheckDetail;
 import com.gcky.durginoutsystem.entity.InventoryCheckTask;
 import com.gcky.durginoutsystem.mapper.DrugMapper;
 import com.gcky.durginoutsystem.mapper.InventoryCheckDetailMapper;
+import com.gcky.durginoutsystem.exception.BusinessException;
 import com.gcky.durginoutsystem.mapper.InventoryCheckTaskMapper;
 import com.gcky.durginoutsystem.service.InventoryService;
 import org.springframework.beans.BeanUtils;
@@ -168,7 +169,7 @@ public class InventoryServiceImpl implements InventoryService {
         wrapper.eq("task_id", taskId);
         wrapper.isNull("actual_stock");
         if (detailMapper.selectCount(wrapper) > 0) {
-            throw new RuntimeException("还有药品未完成盘点，无法提交任务");
+            throw new BusinessException("还有药品未完成盘点，无法提交任务");
         }
 
         // 1. 更新任务状态
@@ -242,7 +243,7 @@ public class InventoryServiceImpl implements InventoryService {
     @Override
     public void reopenTask(Long taskId) {
         InventoryCheckTask task = taskMapper.selectById(taskId);
-        if (task == null) throw new RuntimeException("任务不存在");
+        if (task == null) throw new BusinessException("任务不存在");
         
         task.setStatus("PENDING");
         task.setCompletedAt(null);

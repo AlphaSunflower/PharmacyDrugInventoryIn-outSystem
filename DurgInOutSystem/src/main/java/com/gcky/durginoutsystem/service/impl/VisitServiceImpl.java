@@ -7,6 +7,7 @@ import com.gcky.durginoutsystem.entity.Drug;
 import com.gcky.durginoutsystem.entity.PatientVisit;
 import com.gcky.durginoutsystem.entity.VisitDrug;
 import com.gcky.durginoutsystem.entity.dto.VisitSubmitDTO;
+import com.gcky.durginoutsystem.exception.BusinessException;
 import com.gcky.durginoutsystem.mapper.DiagnosisTypeMapper;
 import com.gcky.durginoutsystem.mapper.DrugMapper;
 import com.gcky.durginoutsystem.mapper.PatientVisitMapper;
@@ -63,7 +64,7 @@ public class VisitServiceImpl implements VisitService {
         for (VisitSubmitDTO.VisitDrugDTO drugDTO : drugs) {
             Drug drug = drugMapper.selectById(drugDTO.getDrugId());
             if (drug == null) {
-                throw new RuntimeException("药品不存在 ID: " + drugDTO.getDrugId());
+                throw new BusinessException("药品不存在 ID: " + drugDTO.getDrugId());
             }
 
             int remaining = drugDTO.getQuantity();
@@ -266,7 +267,7 @@ public class VisitServiceImpl implements VisitService {
     public void dispense(Long visitId) {
         PatientVisit visit = visitMapper.selectById(visitId);
         if (visit == null || !"SUBMITTED".equals(visit.getStatus())) {
-            throw new RuntimeException("工单状态不正确或不存在");
+            throw new BusinessException("工单状态不正确或不存在");
         }
 
         // 1. 获取处方药品
@@ -281,7 +282,7 @@ public class VisitServiceImpl implements VisitService {
 
         for (VisitDrug vd : visitDrugs) {
             Drug drug = drugMap.get(vd.getDrugId());
-            if (drug == null) throw new RuntimeException("药品不存在");
+            if (drug == null) throw new BusinessException("药品不存在");
 
             // FIFO 动态扣减逻辑（加行锁防并发——每药品单独加锁，不合并）
             int needed = vd.getQuantity();
@@ -300,7 +301,7 @@ public class VisitServiceImpl implements VisitService {
             
             if (needed > 0) {
                  // 批次扣完了还不够？ (说明总库存 < 账面库存，或有其他并发问题)
-                 throw new RuntimeException("药品库存严重不足: " + drug.getName() + " (缺 " + needed + ")");
+                 throw new BusinessException("药品库存严重不足: " + drug.getName() + " (缺 " + needed + ")");
             }
 
             // 同步更新 Drug 总库存 (基于所有批次的总和)
@@ -318,7 +319,7 @@ public class VisitServiceImpl implements VisitService {
     public void returnVisit(Long visitId, String reason) {
         PatientVisit visit = visitMapper.selectById(visitId);
         if (visit == null) {
-            throw new RuntimeException("记录不存在");
+            throw new BusinessException("记录不存在");
         }
         
         // 如果是已完成的订单退回（退药），需要恢复库存
@@ -365,7 +366,7 @@ public class VisitServiceImpl implements VisitService {
     public void updateVisit(Long visitId, VisitSubmitDTO visitDTO) {
         PatientVisit visit = visitMapper.selectById(visitId);
         if (visit == null || !"RETURNED".equals(visit.getStatus())) {
-            throw new RuntimeException("仅已退回的记录可修改");
+            throw new BusinessException("仅已退回的记录可修改");
         }
         
         // 更新基础信息
@@ -388,13 +389,13 @@ public class VisitServiceImpl implements VisitService {
     public void cancelVisit(Long visitId) {
         PatientVisit visit = visitMapper.selectById(visitId);
         if (visit == null) {
-            throw new RuntimeException("记录不存在");
+            throw new BusinessException("记录不存在");
         }
         
         // 只能取消 待发药(SUBMITTED) 或 已退回(RETURNED) 的记录
         // DRAFT 理论上也可以，但前端可能没入口。COMPLETED 已完成发药不能直接取消(需要退药流程)，CANCELED 已取消
         if (!"SUBMITTED".equals(visit.getStatus()) && !"RETURNED".equals(visit.getStatus())) {
-            throw new RuntimeException("当前状态不可取消");
+            throw new BusinessException("当前状态不可取消");
         }
         
         visit.setStatus("CANCELED");
