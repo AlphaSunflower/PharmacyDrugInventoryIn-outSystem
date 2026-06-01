@@ -3,82 +3,123 @@ import requests
 
 class APIClient:
     BASE_URL = os.environ.get("API_BASE_URL", "http://localhost:8080/api/v1")
+    TIMEOUT = (5, 15)  # (connect, read) timeout in seconds
 
     def __init__(self):
         self.token = None
         self.user_role = None
         self.user_id = None
-        
+        self._session = requests.Session()
+        self._session.headers.update({"Content-Type": "application/json"})
+
     def login(self, username, password, machine_id=None, auto_login=False):
         try:
-            payload = {
-                "username": username,
-                "password": password
-            }
+            payload = {"username": username, "password": password}
             if machine_id:
                 payload["machineId"] = machine_id
                 payload["autoLogin"] = auto_login
-                
-            response = requests.post(f"{self.BASE_URL}/auth/login", json=payload)
+
+            response = self._session.post(
+                f"{self.BASE_URL}/auth/login", json=payload, timeout=self.TIMEOUT
+            )
             if response.status_code == 200:
                 data = response.json()
-                if data['code'] == 200:
-                    self.token = data['data']['token']
-                    self.user_role = data['data']['user']['role']
-                    self.user_id = data['data']['user']['id']
+                if data["code"] == 200:
+                    self.token = data["data"]["token"]
+                    self.user_role = data["data"]["user"]["role"]
+                    self.user_id = data["data"]["user"]["id"]
                     return True, "登录成功"
-                else:
-                    return False, data['message']
-            return False, f"HTTP Error: {response.status_code}"
+                return False, data["message"]
+            return False, f"HTTP {response.status_code}"
+        except requests.ConnectionError:
+            return False, "无法连接服务器，请检查网络"
+        except requests.Timeout:
+            return False, "请求超时，请重试"
         except Exception as e:
             return False, str(e)
 
     def auto_login(self, machine_id):
         try:
-            response = requests.post(f"{self.BASE_URL}/auth/auto-login", json={"machineId": machine_id})
+            response = self._session.post(
+                f"{self.BASE_URL}/auth/auto-login",
+                json={"machineId": machine_id},
+                timeout=self.TIMEOUT,
+            )
             if response.status_code == 200:
                 data = response.json()
-                if data['code'] == 200:
-                    self.token = data['data']['token']
-                    self.user_role = data['data']['user']['role']
-                    self.user_id = data['data']['user']['id']
+                if data["code"] == 200:
+                    self.token = data["data"]["token"]
+                    self.user_role = data["data"]["user"]["role"]
+                    self.user_id = data["data"]["user"]["id"]
                     return True, "自动登录成功"
             return False, "自动登录失败"
+        except requests.ConnectionError:
+            return False, "无法连接服务器"
+        except requests.Timeout:
+            return False, "请求超时"
         except Exception:
             return False, "网络错误"
 
     def logout(self, machine_id=None):
         try:
             data = {"machineId": machine_id} if machine_id else {}
-            # 注意：logout 需要 token，所以使用 self.post
             self.post("/auth/logout", data=data)
+        except Exception:
+            pass
+        finally:
             self.token = None
             self.user_role = None
             self.user_id = None
             return True
-        except:
-            return False
 
-    def get_headers(self):
-        return {
-            "Authorization": f"Bearer {self.token}",
-            "Content-Type": "application/json"
-        }
+    def _get_headers(self):
+        headers = {}
+        if self.token:
+            headers["Authorization"] = f"Bearer {self.token}"
+        return headers
 
-    # 封装通用的 GET/POST/PUT 请求
     def get(self, endpoint, params=None):
-        return requests.get(f"{self.BASE_URL}{endpoint}", headers=self.get_headers(), params=params)
+        return self._session.get(
+            f"{self.BASE_URL}{endpoint}",
+            headers=self._get_headers(),
+            params=params,
+            timeout=self.TIMEOUT,
+        )
 
     def post(self, endpoint, data=None, params=None):
-        return requests.post(f"{self.BASE_URL}{endpoint}", headers=self.get_headers(), json=data, params=params)
+        return self._session.post(
+            f"{self.BASE_URL}{endpoint}",
+            headers=self._get_headers(),
+            json=data,
+            params=params,
+            timeout=self.TIMEOUT,
+        )
 
     def put(self, endpoint, data=None, params=None):
-        return requests.put(f"{self.BASE_URL}{endpoint}", headers=self.get_headers(), json=data, params=params)
+        return self._session.put(
+            f"{self.BASE_URL}{endpoint}",
+            headers=self._get_headers(),
+            json=data,
+            params=params,
+            timeout=self.TIMEOUT,
+        )
 
     def patch(self, endpoint, data=None, params=None):
-        return requests.patch(f"{self.BASE_URL}{endpoint}", headers=self.get_headers(), json=data, params=params)
+        return self._session.patch(
+            f"{self.BASE_URL}{endpoint}",
+            headers=self._get_headers(),
+            json=data,
+            params=params,
+            timeout=self.TIMEOUT,
+        )
 
     def delete(self, endpoint, params=None):
-        return requests.delete(f"{self.BASE_URL}{endpoint}", headers=self.get_headers(), params=params)
+        return self._session.delete(
+            f"{self.BASE_URL}{endpoint}",
+            headers=self._get_headers(),
+            params=params,
+            timeout=self.TIMEOUT,
+        )
+
 
 api_client = APIClient()

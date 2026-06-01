@@ -728,14 +728,6 @@ class VisitHistoryView(QWidget):
         self.selected_diag_id = None
         self.initUI()
         self.load_data()
-        
-        self.timer = QTimer(self)
-        self.timer.timeout.connect(self.auto_refresh)
-        self.timer.start(2000)
-
-    def auto_refresh(self):
-        if self.isVisible():
-            self.load_data()
 
     def reset_search(self):
         self.search_input.clear()
@@ -1334,24 +1326,16 @@ class DrugQueryView(QWidget):
         super().__init__()
         self.initUI()
         self.load_data()
-        
-        self.timer = QTimer(self)
-        self.timer.timeout.connect(self.auto_refresh)
-        self.timer.start(10000)
 
     def showEvent(self, event):
         self.load_data()
         super().showEvent(event)
 
-    def auto_refresh(self):
-        if self.isVisible():
-            self.load_data()
-
     def initUI(self):
         layout = QVBoxLayout()
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(SPACING_LG_INT)
-        
+
         # 顶部操作栏
         top_card = ModernCard()
         top_card.layout.setContentsMargins(SPACING_LG_INT, SPACING_LG_INT, SPACING_LG_INT, SPACING_LG_INT)

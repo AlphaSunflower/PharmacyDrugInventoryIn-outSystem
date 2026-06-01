@@ -14,10 +14,10 @@ class DispenseView(QWidget):
         self.initUI()
         self.load_data()
         
-        # 自动刷新定时器
+        # 自动刷新定时器 (降低频率减轻服务器压力)
         self.timer = QTimer(self)
         self.timer.timeout.connect(self.auto_refresh)
-        self.timer.start(2000) # 2秒刷新一次
+        self.timer.start(8000) # 8秒刷新一次
 
     def showEvent(self, event):
         self.load_data()
@@ -993,10 +993,6 @@ class DrugManageView(QWidget):
         super().__init__()
         self.initUI()
         self.load_data()
-        
-        self.timer = QTimer(self)
-        self.timer.timeout.connect(self.auto_refresh)
-        self.timer.start(5000)
 
     def initUI(self):
         layout = QVBoxLayout()
@@ -1109,10 +1105,6 @@ class DrugManageView(QWidget):
     def showEvent(self, event):
         self.load_data()
         super().showEvent(event)
-
-    def auto_refresh(self):
-        if self.isVisible():
-            self.load_data()
 
     def reset_search(self):
         self.search_input.clear()
@@ -1802,6 +1794,7 @@ class StatsView(QWidget):
         
         # 选项卡
         self.tabs = QTabWidget()
+        self.tabs.currentChanged.connect(self.on_tab_changed)
         self.tabs.setStyleSheet(f"""
             QTabWidget::pane {{
                 border: 1px solid {GRAY_200};
@@ -1856,7 +1849,11 @@ class StatsView(QWidget):
         layout.addWidget(main_card)
         
         self.setLayout(layout)
-        
+
+        # 跟踪已加载的 tab，懒加载避免一次性 4 个 API 调用阻塞 UI
+        self._loaded_tabs = set()
+        self._current_month = None
+
         self.drug_stats_tab.setColumnCount(6)
         self.drug_stats_tab.setHorizontalHeaderLabels(["药品", "规格", "期初", "本月购进", "本月使用", "期末"])
         
@@ -1968,11 +1965,31 @@ class StatsView(QWidget):
         except Exception as e:
             ModernMessageBox.critical(self, "错误", f"导出出错: {str(e)}")
 
-    def load_stats(self):
+    def on_tab_changed(self, index):
+        """懒加载：切换 tab 时只加载当前 tab 的数据"""
+        if index in self._loaded_tabs and self._current_month == self.month_edit.date().toString("yyyy-MM"):
+            return
+        self.load_current_tab(index)
+
+    def load_current_tab(self, index):
         month = self.month_edit.date().toString("yyyy-MM")
-        year = self.month_edit.date().toString("yyyy")
-        
-        # 1. 药品报表
+        self._current_month = month
+        if index == 0:
+            self._load_drug_stats(month)
+        elif index == 1:
+            self._load_op_stats(month)
+        elif index == 2:
+            self._load_monthly_summary(month)
+        elif index == 3:
+            self._load_yearly_summary(self.month_edit.date().toString("yyyy"))
+        self._loaded_tabs.add(index)
+
+    def load_stats(self):
+        """首次加载当前选中 tab"""
+        self._loaded_tabs.clear()
+        self.load_current_tab(self.tabs.currentIndex())
+
+    def _load_drug_stats(self, month):
         res = api_client.get("/stats/drugs", params={"month": month})
         if res.status_code == 200 and res.json()['code'] == 200:
             result = res.json()['data']
@@ -2038,7 +2055,7 @@ class StatsView(QWidget):
             self.drug_stats_tab.setItem(last_row, 12, QTableWidgetItem(str(summary.get('totalEndAmount', 0))))
             self.drug_stats_tab.setRowHeight(last_row, 50)
 
-        # 2. 运营报表
+    def _load_op_stats(self, month):
         res = api_client.get("/stats/operations", params={"month": month})
         if res.status_code == 200 and res.json()['code'] == 200:
             result = res.json()['data']
@@ -2077,7 +2094,7 @@ class StatsView(QWidget):
             layout.addWidget(daily_table)
             self.op_stats_tab.setLayout(layout)
 
-        # 3. 月度汇总报表
+    def _load_monthly_summary(self, month):
         res = api_client.get("/stats/monthly-summary", params={"month": month})
         if res.status_code == 200 and res.json()['code'] == 200:
             data = res.json()['data']
@@ -2124,7 +2141,7 @@ class StatsView(QWidget):
             for r in range(len(rows)):
                 self.monthly_summary_tab.setRowHeight(r, 50)
 
-        # 4. 年度汇总报表
+    def _load_yearly_summary(self, year):
         res = api_client.get("/stats/yearly-summary", params={"year": year})
         if res.status_code == 200 and res.json()['code'] == 200:
             data = res.json()['data']
