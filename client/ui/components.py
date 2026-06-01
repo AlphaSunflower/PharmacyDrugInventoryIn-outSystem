@@ -1395,7 +1395,7 @@ class ToastNotification(QFrame):
 
 
 class BadgedSidebarButton(QPushButton):
-    """带红色数字徽标的侧边栏按钮"""
+    """带红色数字徽标的侧边栏按钮（使用 QLabel 叠加层）"""
     def __init__(self, text, parent=None):
         super().__init__(text, parent)
         self.setCheckable(True)
@@ -1403,6 +1403,24 @@ class BadgedSidebarButton(QPushButton):
         self._badge_count = 0
         self._base_text = text
         self.setup_style()
+        # 红色徽标标签，初始隐藏
+        self._badge_label = QLabel(self)
+        self._badge_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._badge_label.setStyleSheet(f"""
+            QLabel {{
+                background-color: {ERROR_COLOR};
+                color: {WHITE};
+                border-radius: 9px;
+                font-size: 10px;
+                font-weight: bold;
+                min-width: 18px;
+                max-width: 18px;
+                min-height: 18px;
+                max-height: 18px;
+                padding: 0px;
+            }}
+        """)
+        self._badge_label.hide()
 
     def setup_style(self):
         self.setStyleSheet(f"""
@@ -1429,6 +1447,16 @@ class BadgedSidebarButton(QPushButton):
             return
         self._badge_count = count
         if count > 0:
-            self.setText(f'{self._base_text}  <span style="color:{ERROR_COLOR};font-weight:bold;">●{count}</span>')
+            display = str(count) if count <= 99 else "99+"
+            self._badge_label.setText(display)
+            self._badge_label.adjustSize()
+            # 定位到按钮右侧
+            self._badge_label.move(self.width() - self._badge_label.width() - 12, 14)
+            self._badge_label.show()
         else:
-            self.setText(self._base_text)
+            self._badge_label.hide()
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        if self._badge_count > 0:
+            self._badge_label.move(self.width() - self._badge_label.width() - 12, 14)
