@@ -15,7 +15,16 @@
       "Bash(python -c \"import ast; ast.parse\\(open\\('client/ui/components.py'\\).read\\(\\)\\); print\\('components OK'\\)\")",
       "Bash(../DurgInOutSystem/venv/Scripts/python.exe -c \"import ast; ast.parse\\(open\\('ui/main_window.py'\\).read\\(\\)\\); print\\('OK'\\)\")",
       "Bash(python3 -c \"import ast; ast.parse\\(open\\('ui/main_window.py'\\).read\\(\\)\\); print\\('OK'\\)\")",
-      "Bash(codegraph init *)"
+      "Bash(codegraph init *)",
+      "Bash(git checkout *)",
+      "Bash(sed -i 's/self\\\\.\\\\\\([a-z_]*\\\\\\) = QTableWidget\\(\\)/self.\\\\1 = ModernTable\\(\\)/g' pharmacist_views.py)",
+      "Bash(sed -i 's/\\\\\\(table\\\\|daily_table\\\\\\) = QTableWidget\\(\\)/\\\\1 = ModernTable\\(\\)/g' pharmacist_views.py)",
+      "Bash(sed -i '/self\\\\.style_table\\(/d' pharmacist_views.py)",
+      "Bash(sed -i 's/QTableWidget\\(\\)/ModernTable\\(\\)/g' doctor_views.py)",
+      "Bash(sed -i '/self\\\\.style_table\\(/d' doctor_views.py)",
+      "Bash(sed -i 's/DiagnosisSelectionDialog$/DiagnosisSelectionDialog, ModernTable/' doctor_views.py)",
+      "Bash(sed -i 's/QTableWidget\\(\\)/ModernTable\\(\\)/g' admin_views.py)",
+      "Bash(sed -i '/self\\\\.style_table\\(/d' admin_views.py)"
     ]
   }
 }

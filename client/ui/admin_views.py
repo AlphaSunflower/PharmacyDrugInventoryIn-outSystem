@@ -7,7 +7,7 @@ from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QColor
 from utils.api_client import api_client
 from ui.style_constants import *
-from ui.components import ModernButton, ModernInput, ModernLabel, ModernCard, ModernMessageBox
+from ui.components import ModernButton, ModernInput, ModernLabel, ModernCard, ModernMessageBox, ModernTable
 
 class LogDetailsDialog(QDialog):
     def __init__(self, log, parent=None):
@@ -112,7 +112,7 @@ class UserManageView(QWidget):
         table_card = ModernCard()
         table_card.layout.setContentsMargins(SPACING_LG_INT, SPACING_LG_INT, SPACING_LG_INT, SPACING_LG_INT)
         
-        self.table = QTableWidget()
+        self.table = ModernTable()
         self.table.setColumnCount(6)
         self.table.setHorizontalHeaderLabels(["ID", "用户名", "真实姓名", "角色", "状态", "操作"])
 
@@ -363,7 +363,7 @@ class LogView(QWidget):
         table_card = ModernCard()
         table_card.layout.setContentsMargins(SPACING_LG_INT, SPACING_LG_INT, SPACING_LG_INT, SPACING_LG_INT)
         
-        self.table = QTableWidget()
+        self.table = ModernTable()
         self.table.setColumnCount(7)
         self.table.setHorizontalHeaderLabels(["ID", "操作内容", "操作数据", "操作人", "角色", "时间", "操作"])
         

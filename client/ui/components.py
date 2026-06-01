@@ -1460,3 +1460,95 @@ class BadgedSidebarButton(QPushButton):
         super().resizeEvent(event)
         if self._badge_count > 0:
             self._badge_label.move(self.width() - self._badge_label.width() - 12, 14)
+
+
+class ModernTable(QTableWidget):
+    """统一风格表格 — 替代所有 view 中重复的 style_table()"""
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setShowGrid(False)
+        self.setAlternatingRowColors(True)
+        self.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        self.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        self.verticalHeader().setVisible(False)
+        self._setup_style()
+
+    def _setup_style(self):
+        self.horizontalHeader().setStyleSheet(f"""
+            QHeaderView::section {{
+                background-color: {TABLE_HEADER_BG};
+                color: {GRAY_600};
+                padding: 12px;
+                border: none;
+                border-bottom: 2px solid {TABLE_BORDER};
+                font-weight: bold;
+                font-family: "{FONT_FAMILY}";
+                border-top-left-radius: 4px;
+                border-top-right-radius: 4px;
+            }}
+        """)
+        self.setStyleSheet(f"""
+            QTableWidget {{
+                background-color: {WHITE};
+                border: 1px solid {TABLE_BORDER};
+                border-radius: {RADIUS_BASE};
+                gridline-color: {TABLE_BORDER};
+            }}
+            QTableWidget::item {{
+                padding: 10px;
+                border-bottom: 1px solid {GRAY_100};
+            }}
+            QTableWidget::item:hover {{
+                background-color: {TABLE_HOVER_BG};
+            }}
+            QTableWidget::item:selected {{
+                background-color: {PRIMARY_COLOR}15;
+                color: {PRIMARY_COLOR};
+            }}
+            QTableWidget::item:alternate {{
+                background-color: {GRAY_50};
+            }}
+        """)
+
+    def show_empty(self, message="暂无数据"):
+        """显示空状态提示"""
+        self.setRowCount(1)
+        self.setColumnCount(1)
+        self.setHorizontalHeaderLabels([""])
+        item = QTableWidgetItem(message)
+        item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+        item.setForeground(QColor(EMPTY_STATE_COLOR))
+        item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsSelectable)
+        self.setItem(0, 0, item)
+        self.horizontalHeader().setVisible(False)
+        self.setRowHeight(0, 100)
+
+
+class ModernInputDialog(QDialog):
+    """统一风格的输入对话框，替代 QInputDialog.getText()"""
+    def __init__(self, parent, title, label, default_text=""):
+        super().__init__(parent)
+        self.setWindowTitle(title)
+        self.setFixedSize(420, 200)
+        self.setStyleSheet(f"background-color: {WHITE};")
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(24, 24, 24, 24)
+        layout.setSpacing(16)
+
+        layout.addWidget(ModernLabel(label, size=FONT_SIZE_BASE, color=GRAY_700))
+        self.input = ModernInput(placeholder="请输入...")
+        self.input.setText(default_text)
+        layout.addWidget(self.input)
+
+        btn_layout = QHBoxLayout()
+        btn_layout.addStretch()
+        cancel_btn = ModernButton("取消", variant="secondary")
+        cancel_btn.clicked.connect(self.reject)
+        ok_btn = ModernButton("确定", variant="primary")
+        ok_btn.clicked.connect(self.accept)
+        btn_layout.addWidget(cancel_btn)
+        btn_layout.addWidget(ok_btn)
+        layout.addLayout(btn_layout)
+
+    def get_text(self):
+        return self.input.text()

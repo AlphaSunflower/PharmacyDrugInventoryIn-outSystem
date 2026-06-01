@@ -177,10 +177,9 @@ class VisitCreateView(QWidget):
         main_card.add_layout(drug_control_layout)
         
         # 已选药品列表
-        self.drug_table = QTableWidget()
+        self.drug_table = ModernTable()
         self.drug_table.setColumnCount(5)
         self.drug_table.setHorizontalHeaderLabels(["ID", "药品名称", "数量", "单位", "操作"])
-        self.style_table(self.drug_table)
         self.drug_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
         
         main_card.add_widget(self.drug_table)
@@ -314,47 +313,6 @@ class VisitCreateView(QWidget):
             }}
         """)
 
-    def style_table(self, table):
-        table.setShowGrid(False)
-        table.setAlternatingRowColors(True)
-        table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
-        table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
-        table.verticalHeader().setVisible(False)
-        
-        header = table.horizontalHeader()
-        header.setSectionResizeMode(QHeaderView.ResizeMode.Fixed)
-        header.setStyleSheet(f"""
-            QHeaderView::section {{
-                background-color: {GRAY_50};
-                color: {GRAY_600};
-                padding: 12px;
-                border: none;
-                border-bottom: 2px solid {GRAY_200};
-                font-weight: bold;
-                font-family: "{FONT_FAMILY}";
-            }}
-        """)
-        
-        table.setStyleSheet(f"""
-            QTableWidget {{
-                background-color: {WHITE};
-                border: 1px solid {GRAY_200};
-                border-radius: {RADIUS_BASE};
-                gridline-color: {GRAY_200};
-            }}
-            QTableWidget::item {{
-                padding: 10px;
-                border-bottom: 1px solid {GRAY_100};
-            }}
-            QTableWidget::item:selected {{
-                background-color: {PRIMARY_COLOR}10;
-                color: {PRIMARY_COLOR};
-            }}
-            QTableWidget::item:alternate {{
-                background-color: {GRAY_50};
-            }}
-        """)
-
     def load_data(self):
         # 初始化加载一次数据
         # 预加载一些药品数据，防止点击搜索框时列表为空
@@ -471,10 +429,9 @@ class VisitCreateView(QWidget):
         search_input = ModernInput(placeholder="搜索诊断分类...")
         layout.addWidget(search_input)
         
-        list_widget = QTableWidget()
+        list_widget = ModernTable()
         list_widget.setColumnCount(2)
         list_widget.setHorizontalHeaderLabels(["ID", "名称"])
-        self.style_table(list_widget)
         list_widget.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
         list_widget.setSelectionMode(QTableWidget.SelectionMode.SingleSelection)
         
@@ -545,10 +502,9 @@ class VisitCreateView(QWidget):
         search_input = ModernInput(placeholder="搜索诊断分类...")
         layout.addWidget(search_input)
         
-        list_widget = QTableWidget()
+        list_widget = ModernTable()
         list_widget.setColumnCount(2)
         list_widget.setHorizontalHeaderLabels(["ID", "名称"])
-        self.style_table(list_widget)
         list_widget.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
         list_widget.setSelectionMode(QTableWidget.SelectionMode.SingleSelection)
         
@@ -874,10 +830,9 @@ class VisitHistoryView(QWidget):
         table_card = ModernCard()
         table_card.layout.setContentsMargins(SPACING_LG_INT, SPACING_LG_INT, SPACING_LG_INT, SPACING_LG_INT)
         
-        self.table = QTableWidget()
+        self.table = ModernTable()
         self.table.setColumnCount(7)
         self.table.setHorizontalHeaderLabels(["ID", "患者", "日期", "状态", "诊断", "退回原因", "操作"])
-        self.style_table(self.table)
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
         self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Fixed)
@@ -944,46 +899,6 @@ class VisitHistoryView(QWidget):
             QDateEdit::up-button, QDateEdit::down-button {{
                 width: 0px;
                 border: none;
-            }}
-        """)
-
-    def style_table(self, table):
-        # 复用样式逻辑
-        table.setShowGrid(False)
-        table.setAlternatingRowColors(True)
-        table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
-        table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
-        table.verticalHeader().setVisible(False)
-        
-        header = table.horizontalHeader()
-        header.setStyleSheet(f"""
-            QHeaderView::section {{
-                background-color: {GRAY_50};
-                color: {GRAY_600};
-                padding: 12px;
-                border: none;
-                border-bottom: 2px solid {GRAY_200};
-                font-weight: bold;
-                font-family: "{FONT_FAMILY}";
-            }}
-        """)
-        
-        table.setStyleSheet(f"""
-            QTableWidget {{
-                background-color: {WHITE};
-                border: none;
-                gridline-color: {GRAY_200};
-            }}
-            QTableWidget::item {{
-                padding: 10px;
-                border-bottom: 1px solid {GRAY_100};
-            }}
-            QTableWidget::item:selected {{
-                background-color: {PRIMARY_COLOR}10;
-                color: {PRIMARY_COLOR};
-            }}
-            QTableWidget::item:alternate {{
-                background-color: {GRAY_50};
             }}
         """)
 
@@ -1187,10 +1102,9 @@ class VisitHistoryView(QWidget):
         # 2. 药品列表
         layout.addWidget(ModernLabel("药品清单", size=FONT_SIZE_LG, weight=FONT_WEIGHT_BOLD))
         
-        table = QTableWidget()
+        table = ModernTable()
         table.setColumnCount(5)
         table.setHorizontalHeaderLabels(["药品ID", "药品名称", "规格", "数量", "金额"])
-        self.style_table(table)
         table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         
         drugs = visit_item.get('drugs', [])
@@ -1376,10 +1290,9 @@ class DrugQueryView(QWidget):
         table_card = ModernCard()
         table_card.layout.setContentsMargins(SPACING_LG_INT, SPACING_LG_INT, SPACING_LG_INT, SPACING_LG_INT)
         
-        self.table = QTableWidget()
+        self.table = ModernTable()
         self.table.setColumnCount(6)
         self.table.setHorizontalHeaderLabels(["ID", "名称", "规格", "单位", "价格", "库存"])
-        self.style_table(self.table)
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
         
@@ -1393,45 +1306,6 @@ class DrugQueryView(QWidget):
         layout.addWidget(table_card)
         
         self.setLayout(layout)
-
-    def style_table(self, table):
-        table.setShowGrid(False)
-        table.setAlternatingRowColors(True)
-        table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
-        table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
-        table.verticalHeader().setVisible(False)
-        
-        header = table.horizontalHeader()
-        header.setStyleSheet(f"""
-            QHeaderView::section {{
-                background-color: {GRAY_50};
-                color: {GRAY_600};
-                padding: 12px;
-                border: none;
-                border-bottom: 2px solid {GRAY_200};
-                font-weight: bold;
-                font-family: "{FONT_FAMILY}";
-            }}
-        """)
-        
-        table.setStyleSheet(f"""
-            QTableWidget {{
-                background-color: {WHITE};
-                border: none;
-                gridline-color: {GRAY_200};
-            }}
-            QTableWidget::item {{
-                padding: 10px;
-                border-bottom: 1px solid {GRAY_100};
-            }}
-            QTableWidget::item:selected {{
-                background-color: {PRIMARY_COLOR}10;
-                color: {PRIMARY_COLOR};
-            }}
-            QTableWidget::item:alternate {{
-                background-color: {GRAY_50};
-            }}
-        """)
 
     def on_search(self):
         self.pagination.current_page = 1
