@@ -9,7 +9,8 @@
       "Bash(gh repo *)",
       "Bash(./mvnw clean *)",
       "Bash(./mvnw test *)",
-      "Bash(git restore *)"
+      "Bash(git restore *)",
+      "Bash(git push *)"
     ]
   }
 }

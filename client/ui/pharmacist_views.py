@@ -1793,6 +1793,10 @@ class StatsView(QWidget):
         main_card.add_layout(filter_layout)
         
         # 选项卡
+        # 跟踪已加载的 tab，懒加载避免一次性 4 个 API 调用阻塞 UI
+        self._loaded_tabs = set()
+        self._current_month = None
+
         self.tabs = QTabWidget()
         self.tabs.currentChanged.connect(self.on_tab_changed)
         self.tabs.setStyleSheet(f"""
@@ -1849,10 +1853,6 @@ class StatsView(QWidget):
         layout.addWidget(main_card)
         
         self.setLayout(layout)
-
-        # 跟踪已加载的 tab，懒加载避免一次性 4 个 API 调用阻塞 UI
-        self._loaded_tabs = set()
-        self._current_month = None
 
         self.drug_stats_tab.setColumnCount(6)
         self.drug_stats_tab.setHorizontalHeaderLabels(["药品", "规格", "期初", "本月购进", "本月使用", "期末"])
@@ -1967,6 +1967,8 @@ class StatsView(QWidget):
 
     def on_tab_changed(self, index):
         """懒加载：切换 tab 时只加载当前 tab 的数据"""
+        if not hasattr(self, '_loaded_tabs') or not hasattr(self, 'month_edit'):
+            return
         if index in self._loaded_tabs and self._current_month == self.month_edit.date().toString("yyyy-MM"):
             return
         self.load_current_tab(index)
