@@ -728,6 +728,18 @@ class VisitHistoryView(QWidget):
         self.selected_diag_id = None
         self.initUI()
         self.load_data()
+        # 定时刷新，及时感知药师发药/退回的状态变更
+        self._refresh_timer = QTimer(self)
+        self._refresh_timer.timeout.connect(self._auto_refresh)
+        self._refresh_timer.start(8000)
+
+    def showEvent(self, event):
+        self.load_data()
+        super().showEvent(event)
+
+    def _auto_refresh(self):
+        if self.isVisible():
+            self.load_data()
 
     def reset_search(self):
         self.search_input.clear()

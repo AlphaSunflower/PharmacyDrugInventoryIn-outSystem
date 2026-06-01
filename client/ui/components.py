@@ -1429,6 +1429,6 @@ class BadgedSidebarButton(QPushButton):
             return
         self._badge_count = count
         if count > 0:
-            self.setText(f"{self._base_text}  ●{count}")
+            self.setText(f'{self._base_text}  <span style="color:{ERROR_COLOR};font-weight:bold;">●{count}</span>')
         else:
             self.setText(self._base_text)

@@ -175,19 +175,21 @@ class MainWindow(QMainWindow):
             pending = counts.get('pendingCount', 0)
             returned = counts.get('returnedCount', 0)
 
-            # 药师/ROOT: 检测待发药新增
-            if role in ('PHARMACIST', 'ROOT') and pending > self._prev_pending:
-                diff = pending - self._prev_pending
+            # 药师/ROOT: 待发药徽标（始终更新，处理完自动清零）
+            if role in ('PHARMACIST', 'ROOT'):
                 self._update_badge("待发药", pending)
-                self._show_toast(f"有 {diff} 条新处方待处理", lambda: self.switch_view(
-                    self._find_menu_index("待发药"), "待发药"))
+                if pending > self._prev_pending:
+                    diff = pending - self._prev_pending
+                    self._show_toast(f"有 {diff} 条新处方待处理", lambda: self.switch_view(
+                        self._find_menu_index("待发药"), "待发药"))
 
-            # 医师/ROOT: 检测已退回新增
-            if role in ('DOCTOR', 'ROOT') and returned > self._prev_returned:
-                diff = returned - self._prev_returned
+            # 医师/ROOT: 就诊记录徽标（始终更新，处理完自动清零）
+            if role in ('DOCTOR', 'ROOT'):
                 self._update_badge("就诊记录", returned)
-                self._show_toast(f"有 {diff} 条处方状态已更新", lambda: self.switch_view(
-                    self._find_menu_index("就诊记录"), "就诊记录"))
+                if returned > self._prev_returned:
+                    diff = returned - self._prev_returned
+                    self._show_toast(f"有 {diff} 条处方状态已更新", lambda: self.switch_view(
+                        self._find_menu_index("就诊记录"), "就诊记录"))
 
             self._prev_pending = pending
             self._prev_returned = returned
