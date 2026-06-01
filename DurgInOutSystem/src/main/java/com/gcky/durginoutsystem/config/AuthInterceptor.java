@@ -67,10 +67,13 @@ public class AuthInterceptor implements HandlerInterceptor {
             }
 
             if (requireRole != null && requireRole.value().length > 0) {
-                List<String> allowedRoles = Arrays.asList(requireRole.value());
-                if (!allowedRoles.contains(role)) {
-                    sendError(response, 403, "无权限访问：需要角色 " + String.join(", ", allowedRoles));
-                    return false;
+                // ROOT 角色拥有所有权限，无需逐一检查
+                if (!"ROOT".equals(role)) {
+                    List<String> allowedRoles = Arrays.asList(requireRole.value());
+                    if (!allowedRoles.contains(role)) {
+                        sendError(response, 403, "无权限访问：需要角色 " + String.join(", ", allowedRoles));
+                        return false;
+                    }
                 }
             }
 
