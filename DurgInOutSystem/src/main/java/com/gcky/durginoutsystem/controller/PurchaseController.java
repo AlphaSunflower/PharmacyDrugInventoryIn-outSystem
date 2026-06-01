@@ -60,10 +60,14 @@ public class PurchaseController {
 
         wrapper.orderByDesc("purchase_date");
         List<PurchaseDetail> list = purchaseMapper.selectList(wrapper);
-        
+
+        // 批量加载药品名称（消除 N+1）
+        List<Long> drugIds = list.stream().map(PurchaseDetail::getDrugId).distinct().collect(Collectors.toList());
+        Map<Long, Drug> drugMap = drugIds.isEmpty() ? java.util.Collections.emptyMap() :
+                drugMapper.selectBatchIds(drugIds).stream().collect(Collectors.toMap(Drug::getId, d -> d));
+
         List<Map<String, Object>> result = list.stream().map(p -> {
             Map<String, Object> map = new HashMap<>();
-            // 手动填充字段，避免 BeanUtils 拷贝失效或字段名不匹配
             map.put("id", p.getId());
             map.put("drugId", p.getDrugId());
             map.put("quantity", p.getQuantity());
@@ -71,8 +75,7 @@ public class PurchaseController {
             map.put("price", p.getPrice());
             map.put("totalAmount", p.getTotalAmount());
             map.put("purchaseDate", p.getPurchaseDate());
-            
-            Drug drug = drugMapper.selectById(p.getDrugId());
+            Drug drug = drugMap.get(p.getDrugId());
             map.put("drugName", drug != null ? drug.getName() : "Unknown");
             return map;
         }).collect(Collectors.toList());

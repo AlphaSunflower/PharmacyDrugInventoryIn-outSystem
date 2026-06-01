@@ -13,6 +13,7 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -36,9 +37,15 @@ public class OperationLogServiceImpl extends ServiceImpl<OperationLogMapper, Ope
         wrapper.orderByDesc("created_at");
         
         Page<OperationLog> resultPage = this.page(p, wrapper);
-        
+
+        // 批量加载用户信息（消除 N+1）
+        List<Long> userIds = resultPage.getRecords().stream()
+                .map(OperationLog::getUserId).filter(id -> id != null).distinct().collect(Collectors.toList());
+        Map<Long, User> userMap = userIds.isEmpty() ? Collections.emptyMap() :
+                userMapper.selectBatchIds(userIds).stream().collect(Collectors.toMap(User::getId, u -> u));
+
         Page<Map<String, Object>> mapPage = new Page<>(page, size, resultPage.getTotal());
-        
+
         List<Map<String, Object>> records = resultPage.getRecords().stream().map(log -> {
             Map<String, Object> map = new HashMap<>();
             map.put("id", log.getId());
@@ -46,18 +53,16 @@ public class OperationLogServiceImpl extends ServiceImpl<OperationLogMapper, Ope
             map.put("createdAt", log.getCreatedAt());
             map.put("userId", log.getUserId());
             map.put("operateData", log.getOperateData());
-            
-            // 优先使用日志快照中的角色
+
             if (log.getRole() != null) {
                 map.put("role", log.getRole());
             }
 
             if (log.getUserId() != null) {
-                User user = userMapper.selectById(log.getUserId());
+                User user = userMap.get(log.getUserId());
                 map.put("username", user != null ? user.getUsername() : "Unknown");
-                // 如果日志中没有角色，尝试从当前用户表中获取
-                if (!map.containsKey("role")) {
-                    map.put("role", user != null ? user.getRole() : "");
+                if (!map.containsKey("role") && user != null) {
+                    map.put("role", user.getRole());
                 }
             } else {
                 map.put("username", "System");

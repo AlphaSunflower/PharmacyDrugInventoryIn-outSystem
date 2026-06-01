@@ -1329,6 +1329,11 @@ class DrugQueryView(QWidget):
 
     def showEvent(self, event):
         self.load_data()
+        if not hasattr(self, '_signal_connected'):
+            self._signal_connected = True
+            mw = self.window()
+            if hasattr(mw, 'stock_changed'):
+                mw.stock_changed.connect(self.load_data)
         super().showEvent(event)
 
     def initUI(self):

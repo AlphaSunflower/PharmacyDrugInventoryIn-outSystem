@@ -274,11 +274,16 @@ public class VisitServiceImpl implements VisitService {
         drugWrapper.eq("visit_id", visitId);
         List<VisitDrug> visitDrugs = visitDrugMapper.selectList(drugWrapper);
 
+        // 批量加载药品信息（消除 N+1）
+        List<Long> drugIds = visitDrugs.stream().map(VisitDrug::getDrugId).distinct().collect(Collectors.toList());
+        Map<Long, Drug> drugMap = drugMapper.selectBatchIds(drugIds).stream()
+                .collect(Collectors.toMap(Drug::getId, d -> d));
+
         for (VisitDrug vd : visitDrugs) {
-            Drug drug = drugMapper.selectById(vd.getDrugId());
+            Drug drug = drugMap.get(vd.getDrugId());
             if (drug == null) throw new RuntimeException("药品不存在");
 
-            // FIFO 动态扣减逻辑（加行锁防并发）
+            // FIFO 动态扣减逻辑（加行锁防并发——每药品单独加锁，不合并）
             int needed = vd.getQuantity();
             List<com.gcky.durginoutsystem.entity.DrugBatch> batches = drugBatchMapper.selectBatchesForUpdate(drug.getId());
             
@@ -338,17 +343,12 @@ public class VisitServiceImpl implements VisitService {
     }
 
     private void restoreToLatestBatch(Long drugId, Integer quantity, BigDecimal price) {
-        QueryWrapper<com.gcky.durginoutsystem.entity.DrugBatch> query = new QueryWrapper<>();
-        query.eq("drug_id", drugId)
-             .orderByDesc("created_at")
-             .last("LIMIT 1");
-        com.gcky.durginoutsystem.entity.DrugBatch latest = drugBatchMapper.selectOne(query);
-        
+        // 原子性增加最新批次库存（DB 侧运算，消除竞态）
+        com.gcky.durginoutsystem.entity.DrugBatch latest = drugBatchMapper.selectLatestForUpdate(drugId);
+
         if (latest != null) {
-            latest.setStockQuantity(latest.getStockQuantity() + quantity);
-            drugBatchMapper.updateById(latest);
+            drugBatchMapper.incrementStock(latest.getId(), quantity);
         } else {
-            // 创建恢复批次
             com.gcky.durginoutsystem.entity.DrugBatch batch = new com.gcky.durginoutsystem.entity.DrugBatch();
             batch.setDrugId(drugId);
             batch.setBatchNo("RETURN_RESTORE");

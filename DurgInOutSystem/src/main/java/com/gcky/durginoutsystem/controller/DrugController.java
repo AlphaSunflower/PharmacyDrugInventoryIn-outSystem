@@ -9,6 +9,10 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
 
 import java.time.LocalDateTime;
+import java.util.Collections;
+import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
 
 import com.gcky.durginoutsystem.annotation.Log;
 import com.gcky.durginoutsystem.annotation.RequireRole;
@@ -55,13 +59,18 @@ public class DrugController {
         queryWrapper.orderByDesc("created_at");
         Page<Drug> result = drugMapper.selectPage(drugPage, queryWrapper);
 
-        // 填充批次信息
-        for (Drug drug : result.getRecords()) {
+        // 批量填充批次信息（消除 N+1）
+        if (!result.getRecords().isEmpty()) {
+            List<Long> drugIds = result.getRecords().stream().map(Drug::getId).collect(Collectors.toList());
             QueryWrapper<com.gcky.durginoutsystem.entity.DrugBatch> batchQuery = new QueryWrapper<>();
-            batchQuery.eq("drug_id", drug.getId())
+            batchQuery.in("drug_id", drugIds)
                       .ge("stock_quantity", 0)
                       .orderByAsc("created_at");
-            drug.setBatchList(drugBatchMapper.selectList(batchQuery));
+            Map<Long, List<com.gcky.durginoutsystem.entity.DrugBatch>> batchMap =
+                    drugBatchMapper.selectList(batchQuery).stream()
+                            .collect(Collectors.groupingBy(com.gcky.durginoutsystem.entity.DrugBatch::getDrugId));
+            result.getRecords().forEach(drug ->
+                    drug.setBatchList(batchMap.getOrDefault(drug.getId(), Collections.emptyList())));
         }
 
         return Result.success(result);

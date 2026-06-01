@@ -16,6 +16,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -73,21 +74,24 @@ public class InventoryServiceImpl implements InventoryService {
         QueryWrapper<InventoryCheckDetail> wrapper = new QueryWrapper<>();
         wrapper.eq("task_id", taskId);
         List<InventoryCheckDetail> details = detailMapper.selectList(wrapper);
-        
+
+        // 批量加载药品信息（消除 N+1）
+        List<Long> drugIds = details.stream().map(InventoryCheckDetail::getDrugId).distinct().collect(Collectors.toList());
+        Map<Long, Drug> drugMap = drugIds.isEmpty() ? Collections.emptyMap() :
+                drugMapper.selectBatchIds(drugIds).stream().collect(Collectors.toMap(Drug::getId, d -> d));
+
         return details.stream().map(d -> {
             Map<String, Object> map = new HashMap<>();
-            // 手动填充字段，避免 BeanUtils 对 Map 复制失效
             map.put("id", d.getId());
             map.put("taskId", d.getTaskId());
             map.put("drugId", d.getDrugId());
-            map.put("systemStock", d.getSystemStock()); // 使用快照时的系统库存
+            map.put("systemStock", d.getSystemStock());
             map.put("actualStock", d.getActualStock());
             map.put("discrepancy", d.getDiscrepancy());
             map.put("remark", d.getRemark());
-            Drug drug = drugMapper.selectById(d.getDrugId());
+            Drug drug = drugMap.get(d.getDrugId());
             map.put("drugName", drug != null ? drug.getName() : "Unknown");
             map.put("drugSpec", drug != null ? drug.getSpec() : "");
-            
             return map;
         }).collect(Collectors.toList());
     }
@@ -206,22 +210,15 @@ public class InventoryServiceImpl implements InventoryService {
      */
     private void adjustBatches(Long drugId, int diff) {
         if (diff > 0) {
-            // 盘盈：增加到最新批次
-            QueryWrapper<com.gcky.durginoutsystem.entity.DrugBatch> query = new QueryWrapper<>();
-            query.eq("drug_id", drugId)
-                 .orderByDesc("created_at")
-                 .last("LIMIT 1");
-            com.gcky.durginoutsystem.entity.DrugBatch latestBatch = drugBatchMapper.selectOne(query);
-            
+            // 盘盈：加行锁后原子性增加最新批次库存
+            com.gcky.durginoutsystem.entity.DrugBatch latestBatch = drugBatchMapper.selectLatestForUpdate(drugId);
             if (latestBatch != null) {
-                latestBatch.setStockQuantity(latestBatch.getStockQuantity() + diff);
-                drugBatchMapper.updateById(latestBatch);
+                drugBatchMapper.incrementStock(latestBatch.getId(), diff);
             } else {
-                // 如果没有任何批次，创建一个新的
                 Drug drug = drugMapper.selectById(drugId);
                 com.gcky.durginoutsystem.entity.DrugBatch newBatch = new com.gcky.durginoutsystem.entity.DrugBatch();
                 newBatch.setDrugId(drugId);
-                newBatch.setPrice(drug.getPrice());
+                newBatch.setPrice(drug != null ? drug.getPrice() : BigDecimal.ZERO);
                 newBatch.setStockQuantity(diff);
                 newBatch.setInitialQuantity(diff);
                 newBatch.setCreatedAt(LocalDateTime.now());
@@ -229,28 +226,16 @@ public class InventoryServiceImpl implements InventoryService {
                 drugBatchMapper.insert(newBatch);
             }
         } else {
-            // 盘亏：FIFO 扣减
+            // 盘亏：FIFO 扣减（加行锁防并发）
             int toDeduct = Math.abs(diff);
-            
-            QueryWrapper<com.gcky.durginoutsystem.entity.DrugBatch> query = new QueryWrapper<>();
-            query.eq("drug_id", drugId)
-                 .gt("stock_quantity", 0)
-                 .orderByAsc("created_at");
-            List<com.gcky.durginoutsystem.entity.DrugBatch> batches = drugBatchMapper.selectList(query);
-            
+            List<com.gcky.durginoutsystem.entity.DrugBatch> batches = drugBatchMapper.selectBatchesForUpdate(drugId);
+
             for (com.gcky.durginoutsystem.entity.DrugBatch batch : batches) {
                 if (toDeduct <= 0) break;
-                
-                int currentStock = batch.getStockQuantity();
-                int deductAmount = Math.min(currentStock, toDeduct);
-                
-                batch.setStockQuantity(currentStock - deductAmount);
-                drugBatchMapper.updateById(batch);
-                
+                int deductAmount = Math.min(batch.getStockQuantity(), toDeduct);
+                drugBatchMapper.incrementStock(batch.getId(), -deductAmount);
                 toDeduct -= deductAmount;
             }
-            
-            // 如果批次都扣完了还有剩余盘亏，说明批次总和 < 系统总库存 (异常情况)，暂忽略，因为总库存已在外部强制更新
         }
     }
 

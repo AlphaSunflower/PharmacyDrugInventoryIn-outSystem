@@ -274,13 +274,17 @@ class DispenseView(QWidget):
         dialog.exec()
 
     def dispense(self, visit_id):
-        reply = ModernMessageBox.question(self, "确认", "确认库存充足并进行发药？", 
+        reply = ModernMessageBox.question(self, "确认", "确认库存充足并进行发药？",
                                      QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
         if reply == QMessageBox.StandardButton.Yes:
             res = api_client.post(f"/visits/{visit_id}/dispense")
             if res.status_code == 200 and res.json()['code'] == 200:
                 ModernMessageBox.information(self, "成功", "发药成功")
                 self.load_data()
+                # 通知其他视图刷新库存
+                mw = self.window()
+                if hasattr(mw, 'stock_changed'):
+                    mw.stock_changed.emit()
             else:
                 ModernMessageBox.critical(self, "失败", f"操作失败: {res.json().get('message')}")
 
@@ -1068,7 +1072,7 @@ class DrugManageView(QWidget):
         table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         table.verticalHeader().setVisible(False)
-        
+
         header = table.horizontalHeader()
         header.setStyleSheet(f"""
             QHeaderView::section {{
@@ -1081,7 +1085,7 @@ class DrugManageView(QWidget):
                 font-family: "{FONT_FAMILY}";
             }}
         """)
-        
+
         table.setStyleSheet(f"""
             QTableWidget {{
                 background-color: {WHITE};
@@ -1104,6 +1108,12 @@ class DrugManageView(QWidget):
 
     def showEvent(self, event):
         self.load_data()
+        # 首次显示时连接库存变更信号（此时已加入窗口层级）
+        if not hasattr(self, '_signal_connected'):
+            self._signal_connected = True
+            mw = self.window()
+            if hasattr(mw, 'stock_changed'):
+                mw.stock_changed.connect(self.load_data)
         super().showEvent(event)
 
     def reset_search(self):
@@ -1755,8 +1765,12 @@ class PurchaseView(QWidget):
         res = api_client.post("/purchases/batch", submit_data)
         if res.status_code == 200 and res.json()['code'] == 200:
             ModernMessageBox.information(self, "成功", "购进记录已保存")
-            self.purchase_list = [] 
-            self.load_purchases() 
+            self.purchase_list = []
+            self.load_purchases()
+            # 通知其他视图刷新库存
+            mw = self.window()
+            if hasattr(mw, 'stock_changed'):
+                mw.stock_changed.emit()
         else:
             ModernMessageBox.critical(self, "失败", f"提交失败: {res.json().get('message')}")
 

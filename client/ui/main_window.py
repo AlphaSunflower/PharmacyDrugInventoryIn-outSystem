@@ -1,12 +1,14 @@
 from PyQt6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
                              QPushButton, QStackedWidget, QLabel, QMessageBox, QFrame)
-from PyQt6.QtCore import Qt, QSize
+from PyQt6.QtCore import Qt, QSize, pyqtSignal
 from PyQt6.QtGui import QIcon
 from utils.api_client import api_client
 from ui.style_constants import *
 from ui.components import ModernButton, SidebarButton, ModernLabel
 
 class MainWindow(QMainWindow):
+    stock_changed = pyqtSignal()  # 发药/购进后通知各视图刷新库存
+
     def __init__(self):
         super().__init__()
         self.initUI()
