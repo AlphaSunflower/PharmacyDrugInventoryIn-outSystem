@@ -59,7 +59,7 @@ database/
 | `POST /visits/{id}/dispense` | PHARMACIST | Dispense (FIFO batch deduction) |
 | `POST /visits/{id}/return` | PHARMACIST | Return to doctor with reason |
 | `GET /drugs` | DOCTOR/PHARMACIST | Drug list with batchList |
-| `GET /stats/*` | DOCTOR/PHARMACIST | Reports (drug stats, operations, monthly/yearly summary) |
+| `GET /stats/inventory-check` | DOCTOR/PHARMACIST | Inventory check report for a month |
 
 ## Config
 
@@ -102,6 +102,13 @@ python main.py             # Set API_BASE_URL env var for remote server
 mysql -u root -p < database/init.sql
 ```
 
+### UI Components (components.py)
+
+- **ModernTable** — unified table widget with built-in hover highlight, rounded headers, alternating row colors. All views use this instead of duplicating style_table().
+- **BadgedSidebarButton** — sidebar button with red QLabel overlay showing ●N badge count
+- **ToastNotification** — bottom-right popup with 300ms fade-out animation, clickable to navigate
+- **ModernInputDialog** — styled replacement for QInputDialog.getText()
+
 ## Important Notes
 
 - Plaintext passwords are intentional per project requirements — no bcrypt needed.
@@ -111,3 +118,4 @@ mysql -u root -p < database/init.sql
 - `BusinessException` (not `RuntimeException`) should be used for expected domain errors in services.
 - StatsController is thin — all calculation logic is in `StatsServiceImpl`. Monthly and yearly summary share `calculateSummaryReport()`.
 - The `@RequireRole` annotation supports both class-level and method-level. ROOT bypasses all checks.
+- Purchase batch numbers are auto-generated as `YYYYMMDD_HH_mm_drugId` (e.g. `20260601_22_30_1`).
