@@ -1650,25 +1650,10 @@ class StatsView(QWidget):
         self.yearly_summary_tab = ModernTable()
         yearly_layout.addWidget(self.yearly_summary_tab)
 
-        # 库存盘点报表容器
+        # 库存盘点报表容器 — 复用顶部共享的月份选择器和查询/导出按钮
         self.inv_check_container = QWidget()
         inv_layout = QVBoxLayout(self.inv_check_container)
         inv_layout.setContentsMargins(SPACING_LG_INT, SPACING_LG_INT, SPACING_LG_INT, SPACING_LG_INT)
-        inv_top = QHBoxLayout()
-        inv_top.addWidget(ModernLabel("选择月份:", color=GRAY_800))
-        self.inv_check_month = QDateEdit()
-        self.inv_check_month.setDisplayFormat("yyyy-MM")
-        self.inv_check_month.setDate(QDate.currentDate())
-        self.style_dateedit(self.inv_check_month)
-        inv_top.addWidget(self.inv_check_month)
-        query_btn2 = ModernButton("查询报表", variant="primary")
-        query_btn2.clicked.connect(self._load_inv_check)
-        inv_top.addWidget(query_btn2)
-        export_btn2 = ModernButton("导出", variant="secondary")
-        export_btn2.clicked.connect(self._export_inv_check)
-        inv_top.addWidget(export_btn2)
-        inv_top.addStretch()
-        inv_layout.addLayout(inv_top)
         self.inv_check_table = ModernTable()
         self.inv_check_table.setColumnCount(6)
         self.inv_check_table.setHorizontalHeaderLabels(["药品名称", "规格", "系统库存", "实盘数量", "差异", "备注"])
@@ -2022,7 +2007,7 @@ class StatsView(QWidget):
                 self.yearly_summary_tab.setRowHeight(r, 50)
 
     def _load_inv_check(self):
-        month = self.inv_check_month.date().toString("yyyy-MM")
+        month = self.month_edit.date().toString("yyyy-MM")
         res = api_client.get("/stats/inventory-check", params={"month": month})
         if res.status_code == 200 and res.json()['code'] == 200:
             data = res.json()['data']
@@ -2058,7 +2043,7 @@ class StatsView(QWidget):
             self.inv_check_table.setRowHeight(r, 50)
 
     def _export_inv_check(self):
-        month = self.inv_check_month.date().toString("yyyy-MM")
+        month = self.month_edit.date().toString("yyyy-MM")
         # 先检查状态
         res = api_client.get("/stats/inventory-check", params={"month": month})
         if res.status_code == 200 and res.json()['code'] == 200:
