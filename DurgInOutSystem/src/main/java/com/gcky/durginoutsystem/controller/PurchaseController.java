@@ -20,11 +20,12 @@ import java.util.Map;
 import java.util.stream.Collectors;
 
 import com.gcky.durginoutsystem.annotation.Log;
+import com.gcky.durginoutsystem.annotation.RequireRole;
 
+@RequireRole({"DOCTOR", "PHARMACIST"})
 @Slf4j
 @RestController
 @RequestMapping("/api/v1/purchases")
-@CrossOrigin
 public class PurchaseController {
 
     @Autowired

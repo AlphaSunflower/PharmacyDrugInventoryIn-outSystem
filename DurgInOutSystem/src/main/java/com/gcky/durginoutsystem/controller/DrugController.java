@@ -11,10 +11,11 @@ import org.springframework.web.bind.annotation.*;
 import java.time.LocalDateTime;
 
 import com.gcky.durginoutsystem.annotation.Log;
+import com.gcky.durginoutsystem.annotation.RequireRole;
 
+@RequireRole({"DOCTOR", "PHARMACIST"})
 @RestController
 @RequestMapping("/api/v1/drugs")
-@CrossOrigin
 public class DrugController {
 
     @Autowired

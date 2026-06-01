@@ -3,8 +3,6 @@ package com.gcky.durginoutsystem.aspect;
 import com.gcky.durginoutsystem.annotation.Log;
 import com.gcky.durginoutsystem.entity.OperationLog;
 import com.gcky.durginoutsystem.service.OperationLogService;
-import com.gcky.durginoutsystem.utils.JwtUtil;
-import io.jsonwebtoken.Claims;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.extern.slf4j.Slf4j;
 import org.aspectj.lang.ProceedingJoinPoint;
@@ -16,10 +14,10 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.context.request.RequestContextHolder;
 import org.springframework.web.context.request.ServletRequestAttributes;
 
-import java.time.LocalDateTime;
-
 import com.gcky.durginoutsystem.common.Result;
 import com.gcky.durginoutsystem.entity.User;
+
+import java.time.LocalDateTime;
 import java.util.Map;
 
 @Aspect
@@ -30,12 +28,9 @@ public class LogAspect {
     @Autowired
     private OperationLogService operationLogService;
 
-    @Autowired
-    private JwtUtil jwtUtil;
-
     @Around("@annotation(logAnnotation)")
     public Object around(ProceedingJoinPoint point, Log logAnnotation) throws Throwable {
-        Object result = point.proceed(); // 执行目标方法
+        Object result = point.proceed();
 
         try {
             saveLog(point, logAnnotation, result);
@@ -56,42 +51,42 @@ public class LogAspect {
             action = signature.getMethod().getName();
         }
         operationLog.setAction(action);
-
-        // 2. 设置创建时间
         operationLog.setCreatedAt(LocalDateTime.now());
 
-        // 3. 解析 Token 获取当前用户信息
-        Map<String, Object> userInfo = getCurrentUserInfo();
-        Long userId = userInfo != null ? (Long) userInfo.get("userId") : null;
-        String role = userInfo != null ? (String) userInfo.get("role") : null;
-        
-        // 特殊处理：如果是登录操作且没有 Token (userId为null)，尝试从返回值中获取
-        if (userId == null && result instanceof Result) {
-             Result<?> r = (Result<?>) result;
-             if (r.getCode() == 200 && r.getData() instanceof Map) {
-                 Map<?, ?> data = (Map<?, ?>) r.getData();
-                 if (data.containsKey("user")) {
-                     Object userObj = data.get("user");
-                     if (userObj instanceof User) {
-                         User u = (User) userObj;
-                         userId = u.getId();
-                         role = u.getRole();
-                     } else if (userObj instanceof Map) {
-                         // 假如 User 被转成了 Map
-                         Map<?, ?> uMap = (Map<?, ?>) userObj;
-                         Object idObj = uMap.get("id");
-                         if (idObj != null) userId = Long.valueOf(idObj.toString());
-                         Object roleObj = uMap.get("role");
-                         if (roleObj != null) role = roleObj.toString();
-                     }
-                 }
-             }
+        // 2. 从 request attributes 获取用户信息 (由 AuthInterceptor 预解析)
+        Long userId = null;
+        String role = null;
+
+        ServletRequestAttributes attributes = (ServletRequestAttributes) RequestContextHolder.getRequestAttributes();
+        if (attributes != null) {
+            HttpServletRequest request = attributes.getRequest();
+            userId = (Long) request.getAttribute("userId");
+            role = (String) request.getAttribute("role");
         }
-        
+
+        // 特殊处理：登录操作 (auth/login, auth/auto-login 没有经过拦截器，从返回值中提取)
+        if (userId == null && result instanceof Result) {
+            Result<?> r = (Result<?>) result;
+            if (r.getCode() == 200 && r.getData() instanceof Map) {
+                Map<?, ?> data = (Map<?, ?>) r.getData();
+                Object userObj = data.get("user");
+                if (userObj instanceof User u) {
+                    userId = u.getId();
+                    role = u.getRole();
+                } else if (userObj instanceof Map) {
+                    Map<?, ?> uMap = (Map<?, ?>) userObj;
+                    Object idObj = uMap.get("id");
+                    if (idObj != null) userId = Long.valueOf(idObj.toString());
+                    Object roleObj = uMap.get("role");
+                    if (roleObj != null) role = roleObj.toString();
+                }
+            }
+        }
+
         operationLog.setUserId(userId);
         operationLog.setRole(role);
-        
-        // 4. 设置操作数据 (简单的参数记录)
+
+        // 3. 记录操作参数摘要
         try {
             Object[] args = point.getArgs();
             if (args != null && args.length > 0) {
@@ -111,36 +106,6 @@ public class LogAspect {
             // 忽略参数解析错误
         }
 
-        // 5. 保存到数据库
         operationLogService.save(operationLog);
-    }
-
-    private Map<String, Object> getCurrentUserInfo() {
-        try {
-            ServletRequestAttributes attributes = (ServletRequestAttributes) RequestContextHolder.getRequestAttributes();
-            if (attributes == null) return null;
-
-            HttpServletRequest request = attributes.getRequest();
-            String authHeader = request.getHeader("Authorization");
-            
-            if (authHeader != null && authHeader.startsWith("Bearer ")) {
-                String token = authHeader.substring(7);
-                Claims claims = jwtUtil.extractClaims(token);
-                
-                Map<String, Object> info = new java.util.HashMap<>();
-                Object userIdObj = claims.get("userId");
-                if (userIdObj != null) {
-                     info.put("userId", Long.valueOf(userIdObj.toString()));
-                }
-                Object roleObj = claims.get("role");
-                if (roleObj != null) {
-                    info.put("role", roleObj.toString());
-                }
-                return info;
-            }
-        } catch (Exception e) {
-            log.error("解析 Token 获取用户信息失败", e);
-        }
-        return null;
     }
 }

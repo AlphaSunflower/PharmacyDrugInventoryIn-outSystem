@@ -21,9 +21,11 @@ import java.time.LocalDate;
 import java.util.*;
 import java.util.stream.Collectors;
 
+import com.gcky.durginoutsystem.annotation.RequireRole;
+
+@RequireRole({"DOCTOR", "PHARMACIST"})
 @RestController
 @RequestMapping("/api/v1/stats")
-@CrossOrigin
 public class StatsController {
 
     @Autowired

@@ -11,10 +11,11 @@ import org.springframework.web.bind.annotation.*;
 import java.time.LocalDateTime;
 
 import com.gcky.durginoutsystem.annotation.Log;
+import com.gcky.durginoutsystem.annotation.RequireRole;
 
+@RequireRole("ADMIN")
 @RestController
 @RequestMapping("/api/v1/users")
-@CrossOrigin
 public class UserController {
 
     @Autowired

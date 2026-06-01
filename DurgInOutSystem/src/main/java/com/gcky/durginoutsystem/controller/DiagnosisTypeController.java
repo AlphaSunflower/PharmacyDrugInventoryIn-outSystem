@@ -10,16 +10,17 @@ import org.springframework.web.bind.annotation.*;
 import java.util.List;
 
 import com.gcky.durginoutsystem.annotation.Log;
+import com.gcky.durginoutsystem.annotation.RequireRole;
 
 @RestController
 @RequestMapping("/api/v1/diagnosis-types")
-@CrossOrigin
 public class DiagnosisTypeController {
 
     @Autowired
     private DiagnosisTypeMapper diagnosisTypeMapper;
 
     // 获取所有诊断类型
+    @RequireRole({"DOCTOR", "PHARMACIST"})
     @GetMapping
     public Result<List<DiagnosisType>> getAll() {
         return Result.success(diagnosisTypeMapper.selectList(null));
@@ -27,6 +28,7 @@ public class DiagnosisTypeController {
 
     // 新增诊断类型
     @Log("新增诊断类型")
+    @RequireRole("DOCTOR")
     @PostMapping
     public Result<String> add(@RequestBody DiagnosisType diagnosisType) {
         // 查重
@@ -44,6 +46,7 @@ public class DiagnosisTypeController {
 
     // 删除诊断类型
     @Log("删除诊断类型")
+    @RequireRole("DOCTOR")
     @DeleteMapping("/{id}")
     public Result<String> delete(@PathVariable Long id) {
         // 检查是否已被使用 (patient_visits 表)
@@ -65,6 +68,7 @@ public class DiagnosisTypeController {
 
     // 修改诊断类型
     @Log("修改诊断类型")
+    @RequireRole("DOCTOR")
     @PutMapping("/{id}")
     public Result<String> update(@PathVariable Long id, @RequestBody DiagnosisType diagnosisType) {
         DiagnosisType existing = diagnosisTypeMapper.selectById(id);

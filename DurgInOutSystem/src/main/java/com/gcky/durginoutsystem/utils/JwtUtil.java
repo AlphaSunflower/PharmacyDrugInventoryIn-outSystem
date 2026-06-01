@@ -4,6 +4,7 @@ import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.SignatureAlgorithm;
 import io.jsonwebtoken.security.Keys;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 import java.security.Key;
@@ -13,11 +14,14 @@ import java.util.Map;
 
 @Component
 public class JwtUtil {
-    // 实际项目中应放在配置文件中，并且更复杂
-    private static final String SECRET = "a522936585e1ca02d2b68e416715388e3ce8e454448d984998bf562667c3dfa6";
+
+    private final Key key;
+
     private static final long EXPIRATION_TIME = 86400000; // 24 hours
 
-    private final Key key = Keys.hmacShaKeyFor(SECRET.getBytes());
+    public JwtUtil(@Value("${jwt.secret}") String secret) {
+        this.key = Keys.hmacShaKeyFor(secret.getBytes());
+    }
 
     public String generateToken(String username, String role, Long userId) {
         Map<String, Object> claims = new HashMap<>();

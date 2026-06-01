@@ -15,7 +15,6 @@ import com.gcky.durginoutsystem.annotation.Log;
 
 @RestController
 @RequestMapping("/api/v1/auth")
-@CrossOrigin // 允许跨域
 public class AuthController {
 
     @Autowired
@@ -91,42 +90,21 @@ public class AuthController {
     
     @Log("用户退出")
     @PostMapping("/logout")
-    public Result<String> logout(@RequestHeader("Authorization") String token, 
+    public Result<String> logout(jakarta.servlet.http.HttpServletRequest request,
                                  @RequestBody(required = false) Map<String, String> body) {
-        // 如果传递了机器码，检查是否匹配并解绑
-        if (body != null && body.containsKey("machineId")) {
+        Long userId = (Long) request.getAttribute("userId");
+
+        if (body != null && body.containsKey("machineId") && userId != null) {
             String machineId = body.get("machineId");
-            // 从 token 获取 userId
-            if (token.startsWith("Bearer ")) token = token.substring(7);
-            
-            // 使用更安全的解析方式
-            io.jsonwebtoken.Claims claims = jwtUtil.extractClaims(token);
-            Object userIdObj = claims.get("userId");
-            Long userId = null;
-            if (userIdObj != null) {
-                userId = Long.valueOf(userIdObj.toString());
-            }
-            
-            if (userId != null) {
-                User user = userMapper.selectById(userId);
-                // 只有当数据库中确实有机器码，且与当前请求的机器码一致时，才解绑
-                if (user != null && user.getMachineId() != null && user.getMachineId().equals(machineId)) {
-                    // 机器码一致，解绑
-                    user.setMachineId(null); // 设置为 null
-                    
-                    // MyBatis-Plus updateById 默认策略可能是忽略 null 值
-                    // 我们需要确保 machine_id 字段被更新为 NULL
-                    // 或者使用 UpdateWrapper 显式更新
-                    
-                    com.baomidou.mybatisplus.core.conditions.update.UpdateWrapper<User> updateWrapper = new com.baomidou.mybatisplus.core.conditions.update.UpdateWrapper<>();
-                    updateWrapper.eq("id", userId).set("machine_id", null);
-                    userMapper.update(null, updateWrapper);
-                    
-                    return Result.success("退出成功，下次需手动登录");
-                }
+
+            User user = userMapper.selectById(userId);
+            if (user != null && user.getMachineId() != null && user.getMachineId().equals(machineId)) {
+                com.baomidou.mybatisplus.core.conditions.update.UpdateWrapper<User> updateWrapper = new com.baomidou.mybatisplus.core.conditions.update.UpdateWrapper<>();
+                updateWrapper.eq("id", userId).set("machine_id", null);
+                userMapper.update(null, updateWrapper);
+                return Result.success("退出成功，下次需手动登录");
             }
         }
-        // 前端丢弃token即可
         return Result.success("退出成功");
     }
 }

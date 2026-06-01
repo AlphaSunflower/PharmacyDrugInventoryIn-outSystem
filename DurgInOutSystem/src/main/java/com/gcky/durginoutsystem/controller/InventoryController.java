@@ -9,9 +9,11 @@ import org.springframework.web.bind.annotation.*;
 import java.util.List;
 import java.util.Map;
 
+import com.gcky.durginoutsystem.annotation.RequireRole;
+
+@RequireRole("PHARMACIST")
 @RestController
 @RequestMapping("/api/v1/inventory-checks")
-@CrossOrigin
 public class InventoryController {
 
     @Autowired

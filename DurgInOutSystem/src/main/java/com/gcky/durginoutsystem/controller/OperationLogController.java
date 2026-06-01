@@ -8,9 +8,11 @@ import org.springframework.web.bind.annotation.*;
 
 import java.util.Map;
 
+import com.gcky.durginoutsystem.annotation.RequireRole;
+
+@RequireRole("ADMIN")
 @RestController
 @RequestMapping("/api/v1/operation-logs")
-@CrossOrigin
 public class OperationLogController {
 
     @Autowired
