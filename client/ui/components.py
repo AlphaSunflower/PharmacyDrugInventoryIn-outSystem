@@ -1,7 +1,7 @@
 
-from PyQt6.QtWidgets import (QPushButton, QLineEdit, QWidget, QVBoxLayout, 
+from PyQt6.QtWidgets import (QPushButton, QLineEdit, QWidget, QVBoxLayout,
                              QLabel, QGraphicsDropShadowEffect, QFrame, QMessageBox,
-                             QHBoxLayout, QComboBox, QDateEdit, QAbstractSpinBox, QTableWidget, QTableWidgetItem, QHeaderView, QButtonGroup, QApplication)
+                             QHBoxLayout, QComboBox, QDateEdit, QAbstractSpinBox, QTableWidget, QTableWidgetItem, QHeaderView, QButtonGroup, QApplication, QDialog)
 from PyQt6.QtCore import Qt, QPropertyAnimation, QRect, QEasingCurve, QEvent, pyqtSignal, QDate, QPoint, QTimer
 from PyQt6.QtGui import QColor, QCursor
 
