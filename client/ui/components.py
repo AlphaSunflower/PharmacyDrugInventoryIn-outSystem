@@ -1126,7 +1126,7 @@ class ModernCard(QFrame):
         
     def setup_ui(self):
         self.layout = QVBoxLayout(self)
-        self.layout.setContentsMargins(20, 20, 20, 20)
+        self.layout.setContentsMargins(CARD_PADDING, CARD_PADDING, CARD_PADDING, CARD_PADDING)
         self.layout.setSpacing(15)
         
         # 阴影效果
@@ -1388,10 +1388,16 @@ class ToastNotification(QFrame):
 
     def fade_out(self):
         try:
+            self._anim = QPropertyAnimation(self, b"windowOpacity")
+            self._anim.setDuration(300)
+            self._anim.setStartValue(1.0)
+            self._anim.setEndValue(0.0)
+            self._anim.finished.connect(self.hide)
+            self._anim.finished.connect(self.deleteLater)
+            self._anim.start()
+        except RuntimeError:
             self.hide()
             self.deleteLater()
-        except RuntimeError:
-            pass
 
 
 class BadgedSidebarButton(QPushButton):

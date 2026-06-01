@@ -6,7 +6,7 @@ from PyQt6.QtCore import QDate, Qt, QTimer, QEvent
 from PyQt6.QtGui import QColor, QIntValidator
 from utils.api_client import api_client
 from ui.style_constants import *
-from ui.components import ModernButton, ModernInput, ModernLabel, ModernCard, ModernMessageBox, PaginationControl, SmartDateEdit, DepartmentFilterGroup, DrugSelectionDialog, DiagnosisSelectionDialog, ModernTable
+from ui.components import ModernButton, ModernInput, ModernLabel, ModernCard, ModernMessageBox, PaginationControl, SmartDateEdit, DepartmentFilterGroup, DrugSelectionDialog, DiagnosisSelectionDialog, ModernTable, ModernInputDialog
 
 class DispenseView(QWidget):
     def __init__(self):
@@ -247,8 +247,9 @@ class DispenseView(QWidget):
                 ModernMessageBox.critical(self, "失败", f"操作失败: {res.json().get('message')}")
 
     def reject(self, visit_id):
-        reason, ok = QInputDialog.getText(self, "退回原因", "请输入退回原因:")
-        if ok and reason:
+        dlg = ModernInputDialog(self, "退回原因", "请输入退回原因:")
+        if dlg.exec() == QDialog.DialogCode.Accepted and (reason := dlg.get_text()):
+
             res = api_client.post(f"/visits/{visit_id}/return", {"reason": reason})
             if res.status_code == 200 and res.json()['code'] == 200:
                 ModernMessageBox.information(self, "成功", "已退回给医师")

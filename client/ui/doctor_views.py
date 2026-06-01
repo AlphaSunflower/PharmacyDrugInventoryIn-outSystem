@@ -6,7 +6,7 @@ from PyQt6.QtCore import QDate, Qt, QTimer, QEvent
 from PyQt6.QtGui import QColor
 from utils.api_client import api_client
 from ui.style_constants import *
-from ui.components import ModernButton, ModernInput, ModernLabel, ModernCard, ModernMessageBox, PaginationControl, SmartDateEdit, DepartmentFilterGroup, SearchableComboBox, StatusFilterGroup, DiagnosisSelectionDialog, DrugSelectionDialog
+from ui.components import ModernButton, ModernInput, ModernLabel, ModernCard, ModernMessageBox, PaginationControl, SmartDateEdit, DepartmentFilterGroup, SearchableComboBox, StatusFilterGroup, DiagnosisSelectionDialog, DrugSelectionDialog, ModernTable, ModernInputDialog
 
 class VisitCreateView(QWidget):
     def __init__(self):
@@ -404,8 +404,9 @@ class VisitCreateView(QWidget):
         self.selected_diag_id = None
 
     def add_diagnosis(self):
-        name, ok = QInputDialog.getText(self, "新增诊断", "请输入诊断名称:")
-        if ok and name:
+        dlg = ModernInputDialog(self, "新增诊断", "请输入诊断名称:")
+        if dlg.exec() == QDialog.DialogCode.Accepted and (name := dlg.get_text()):
+
             res = api_client.post("/diagnosis-types", {"name": name, "remark": "由医师新增"})
             if res.status_code == 200 and res.json()['code'] == 200:
                 ModernMessageBox.information(self, "成功", "添加成功")
@@ -473,8 +474,8 @@ class VisitCreateView(QWidget):
             row = selected_items[0].row()
             diag = list_widget.item(row, 0).data(Qt.ItemDataRole.UserRole)
             
-            new_name, ok = QInputDialog.getText(dialog, "修改名称", f"请输入“{diag['name']}”的新名称:", text=diag['name'])
-            if ok and new_name and new_name != diag['name']:
+            dlg2 = ModernInputDialog(dialog, “修改名称”, f”请输入”{diag['name']}”的新名称:”, default_text=diag['name'])
+            if dlg2.exec() == QDialog.DialogCode.Accepted and (new_name := dlg2.get_text()) and new_name != diag['name']:
                 res = api_client.put(f"/diagnosis-types/{diag['id']}", {"name": new_name})
                 if res.status_code == 200 and res.json()['code'] == 200:
                     ModernMessageBox.information(dialog, "成功", "修改成功")
