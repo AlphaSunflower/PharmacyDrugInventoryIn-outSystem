@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-药品出入库管理系统 (Pharmacy Drug Inventory In/Out System) — a three-role medical inventory system for clinic pharmacies. Supports doctors (writing prescriptions), pharmacists (dispensing drugs, inventory checks, purchasing), and admins (user management, audit logs).
+药品出入库管理系统 — a four-role pharmacy inventory system (ADMIN, DOCTOR, PHARMACIST, ROOT). Supports doctors writing prescriptions, pharmacists dispensing drugs and managing inventory/purchases, and admins managing users and audit logs. ROOT has both doctor and pharmacist privileges.
 
 ## Tech Stack
 
@@ -15,112 +15,99 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Project Structure
 
 ```
-DurgInOutSystem/          # Spring Boot backend (Maven)
-  src/main/java/com/gcky/durginoutsystem/
-    controller/           # REST controllers (all under /api/v1)
-    service/              # Service interfaces + impl/ subpackage
-    mapper/               # MyBatis Plus mapper interfaces (no XML needed)
-    entity/               # DB entities + dto/ + excel/ subpackages
-    common/Result.java    # Unified response envelope: {code, message, data}
-    config/               # MyBatis Plus pagination interceptor
-    utils/JwtUtil.java    # JWT generation + validation (HS256, 24h expiry)
-    annotation/Log.java   # @Log annotation for operation audit logging
-    aspect/LogAspect.java # AOP aspect that auto-records operation logs
-    exception/            # GlobalExceptionHandler (@RestControllerAdvice)
+DurgInOutSystem/src/main/java/com/gcky/durginoutsystem/
+  controller/          # REST controllers under /api/v1 (thin, delegate to services)
+  service/             # Service interfaces + impl/ subpackage
+    StatsService       # All stats calculation logic (drug stats, operations, monthly/yearly summary)
+    DrugStockService   # Shared: recalculates drug total stock from batch sums
+  mapper/              # MyBatis Plus BaseMapper interfaces
+  entity/              # DB entities + dto/ + excel/ subpackages
+  common/Result.java   # Unified response: {code, message, data}
+  config/              # AuthInterceptor (JWT + RBAC), WebMvcConfig (CORS), MybatisPlusConfig
+  utils/JwtUtil.java   # JWT: secret from config, HS256, 24h expiry, constructor injection
+  annotation/          # @Log (audit), @RequireRole (RBAC)
+  aspect/LogAspect.java
+  exception/           # BusinessException (400), GlobalExceptionHandler (400/500)
 
-client/                   # PyQt6 desktop client
-  main.py                 # Entry point: LoginWindow + auto-login via machine ID
-  ui/                     # PyQt6 views (main_window, admin_views, doctor_views, pharmacist_views, components, style_constants)
-  utils/api_client.py     # Singleton APIClient wrapping requests (BASE_URL, JWT, get/post/put/patch/delete)
-  build/                  # PyInstaller build output
-  dist/                   # Distribution .exe
-
-database/                 # SQL scripts
-  init.sql                # Full schema + seed data
-  update_*.sql            # Migration scripts (batches, inventory, visit_drugs changes)
+client/
+  main.py              # Entry: LoginWindow + machine-id auto-login
+  ui/                  # main_window, admin_views, doctor_views, pharmacist_views, components, style_constants
+  utils/api_client.py  # requests.Session() singleton with (5,15)s timeout, BASE_URL from env
+database/
+  init.sql             # Full schema + seed data
+  update_*.sql         # Migration scripts
 ```
 
 ## Backend Architecture
 
-Standard layered architecture: **Controller → Service (interface) → ServiceImpl → Mapper (MyBatis Plus)**
+**Controller → Service → Mapper** (MyBatis Plus), with these cross-cutting concerns:
 
-- Controllers are thin — extract userId/role from JWT via `JwtUtil`, delegate to services, return `Result<T>`.
-- Services use `@Transactional` for multi-table operations (especially visit submission and drug dispensing).
-- Mappers extend MyBatis Plus `BaseMapper<T>` — no manual SQL for basic CRUD. Complex queries use `QueryWrapper`.
-- `@CrossOrigin` on all controllers.
-- AOP logging via `@Log("description")` annotation on controller methods — automatically saves to `operation_logs` table.
+- **Auth**: `AuthInterceptor` validates JWT on all `/api/v1/**` except login/auto-login. Extracts userId/role/username into request attributes. `@RequireRole` annotation on controllers for RBAC. ROOT role bypasses all role checks.
+- **Concurrency**: `DrugBatchMapper.selectBatchesForUpdate()` uses `SELECT ... FOR UPDATE` for FIFO batch deduction. `incrementStock()` does atomic DB-side `stock_quantity = stock_quantity + ?`.
+- **Error handling**: `BusinessException` for domain errors → HTTP 400. Generic `RuntimeException` → HTTP 500 (internal error, details not leaked).
+- **Audit**: `@Log` AOP captures operation logs via `LogAspect`, reading userId from request attributes.
+- **Stock**: `DrugStockService.updateDrugTotalStock()` recalculates `drugs.stock_quantity` as `SUM(drug_batches.stock_quantity)`.
 
-### Key Domain Flows
+### Key Endpoints
 
-**Prescription → Dispense cycle** (the core business flow):
-1. Doctor submits visit (`POST /visits`, status → `SUBMITTED`)
-2. Pharmacist sees pending visits, can dispense (`POST /visits/{id}/dispense` → FIFO batch deduction, status → `COMPLETED`) or return with reason (`POST /visits/{id}/return` → status → `RETURNED`)
-3. Doctor can modify and resubmit returned visits (`PUT /visits/{id}`)
+| Endpoint | Role | Purpose |
+|----------|------|---------|
+| `POST /auth/login` | none | Login, returns JWT |
+| `POST /auth/auto-login` | none | Auto-login via machine ID |
+| `GET /visits/notification-counts` | all | Returns pendingCount, returnedCount for badges |
+| `POST /visits` | DOCTOR | Submit prescription |
+| `POST /visits/{id}/dispense` | PHARMACIST | Dispense (FIFO batch deduction) |
+| `POST /visits/{id}/return` | PHARMACIST | Return to doctor with reason |
+| `GET /drugs` | DOCTOR/PHARMACIST | Drug list with batchList |
+| `GET /stats/*` | DOCTOR/PHARMACIST | Reports (drug stats, operations, monthly/yearly summary) |
 
-**Inventory**: Batch-based FIFO dispense (`drug_batches` table). Total stock in `drugs.stock_quantity` is a computed sum of batch stocks. Purchases create new batches. Inventory checks snapshot system stock vs physical count.
+## Config
 
-## Build & Run Commands
+Configuration uses **YAML with Spring profiles**:
 
-### Backend
+```
+resources/
+├── application.yml          # Shared config (tracked in git, no secrets)
+├── application-local.yml    # Local dev (gitignored, real credentials)
+└── application-dev.yml      # Remote server (gitignored, real credentials)
+```
+
+- Default profile: `local`
+- `jwt.secret` injected via `@Value("${jwt.secret}")` — set per profile
+- DB credentials via `${DB_URL}`, `${DB_USERNAME}`, `${DB_PASSWORD}` env vars with per-profile overrides
+
+## Client Architecture
+
+- **API client**: `requests.Session()` singleton with (5,15)s timeout, `BASE_URL` from `API_BASE_URL` env var (default localhost)
+- **Notification system**: MainWindow polls `/visits/notification-counts` every 5s. `BadgedSidebarButton` shows red ●N overlay on sidebar. `ToastNotification` pops up bottom-right on new items, auto-dismisses 4s, click navigates to relevant view.
+- **Cross-view refresh**: `MainWindow.stock_changed` signal emitted after dispense/purchase. DrugManageView and DrugQueryView connect to auto-refresh.
+- **Poling**: DispenseView 8s, VisitHistoryView 8s. Other views refresh on showEvent or manual action.
+- **Role-based menus**: ROOT gets all 8 views, others get role-specific subsets.
+
+## Build & Run
 
 ```bash
-# Build
+# Backend
 cd DurgInOutSystem
-./mvnw clean compile       # or: mvn clean compile
+./mvnw clean compile       # Build
+./mvnw test                # Run tests
+./mvnw spring-boot:run     # Run
 
-# Run tests
-./mvnw test
-
-# Package (JAR)
-./mvnw clean package -DskipTests
-
-# Run (Spring Boot)
-./mvnw spring-boot:run
-```
-
-Database configuration is in `DurgInOutSystem/src/main/resources/application.properties`. Two connection profiles are present (remote server and localhost) — comment/uncomment as needed.
-
-### Client
-
-```bash
+# Client
 cd client
-
-# Install dependencies
 pip install PyQt6 requests
+python main.py             # Set API_BASE_URL env var for remote server
 
-# Run
-python main.py
-```
-
-The client's API base URL is hardcoded in `client/utils/api_client.py` (`APIClient.BASE_URL`). Switch between remote and localhost by commenting/uncommenting.
-
-### Database
-
-```bash
-# Initialize database
+# Database init
 mysql -u root -p < database/init.sql
-
-# Apply migrations (run in order)
-mysql -u root -p pharmacy_db < database/update_visit_drugs.sql
-mysql -u root -p pharmacy_db < database/update_to_batches.sql
-mysql -u root -p pharmacy_db < database/update_inventory_check.sql
-mysql -u root -p pharmacy_db < database/remove_batch_id.sql
 ```
-
-## API Convention
-
-- Base: `/api/v1`
-- Auth: `Authorization: Bearer <token>` header
-- Response: `{ "code": 200, "message": "success", "data": {...} }`
-- Pagination: `?page=1&size=10`, returns MyBatis Plus `Page` object serialized as JSON
-- Status values for visits: `DRAFT`, `SUBMITTED`, `RETURNED`, `COMPLETED`
-- Roles: `ADMIN`, `DOCTOR`, `PHARMACIST`
-- JWT claims: `sub` (username), `role`, `userId`
 
 ## Important Notes
 
-- The JWT secret (`JwtUtil.SECRET`) is hardcoded — do not use in production without rotating.
-- DB credentials in `application.properties` are in plaintext — ensure these are secured before deployment.
-- Client uses field injection (`@Autowired` on fields) rather than constructor injection throughout.
-- Drug stock quantity in `drugs` table is a denormalized sum of `drug_batches.stock_quantity` — always call `updateDrugTotalStock()` after batch mutations.
-- The `@Log` annotation on controllers has an atypical design — it records operation logs AFTER the method returns, and tries to extract userId from the JWT on the request context (which means it captures the logged-in user's actions but won't capture login events cleanly without special-casing).
+- Plaintext passwords are intentional per project requirements — no bcrypt needed.
+- JWT secret and DB credentials are in gitignored profile YAML files (`application-local.yml`, `application-dev.yml`).
+- Drug stock is a denormalized sum of batch stocks — always use `DrugStockService.updateDrugTotalStock()` after batch mutations.
+- `FOR UPDATE` on batches in `dispense()` is per-drug (not batched across drugs) to avoid deadlocks.
+- `BusinessException` (not `RuntimeException`) should be used for expected domain errors in services.
+- StatsController is thin — all calculation logic is in `StatsServiceImpl`. Monthly and yearly summary share `calculateSummaryReport()`.
+- The `@RequireRole` annotation supports both class-level and method-level. ROOT bypasses all checks.
