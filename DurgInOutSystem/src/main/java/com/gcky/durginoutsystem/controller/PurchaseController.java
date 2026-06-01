@@ -96,7 +96,12 @@ public class PurchaseController {
             batch.setStockQuantity(purchase.getQuantity());
             batch.setInitialQuantity(purchase.getQuantity());
             batch.setCreatedAt(LocalDateTime.now());
-            // 生产日期/有效期暂时未从前端获取，若有需要需在 PurchaseDetail 中添加字段并传递
+            // 自动生成批次号: YYYYMMDD_HH_mm_drugId
+            LocalDateTime now = LocalDateTime.now();
+            String batchNo = String.format("%04d%02d%02d_%02d_%02d_%d",
+                    now.getYear(), now.getMonthValue(), now.getDayOfMonth(),
+                    now.getHour(), now.getMinute(), purchase.getDrugId());
+            batch.setBatchNo(batchNo);
             drugBatchMapper.insert(batch);
 
             // 2. 保存购进明细
