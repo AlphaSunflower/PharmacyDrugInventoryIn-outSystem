@@ -1,0 +1,23 @@
+spring:
+  application:
+    name: DurgInOutSystem
+  profiles:
+    active: local
+  datasource:
+    driver-class-name: com.mysql.cj.jdbc.Driver
+
+# JWT (实际密钥在各 profile 中配置，此处为空占位)
+jwt:
+  secret: ${JWT_SECRET:}
+
+# MyBatis Plus
+mybatis-plus:
+  configuration:
+    map-underscore-to-camel-case: true
+  global-config:
+    db-config:
+      id-type: auto
+
+logging:
+  level:
+    com.gcky.durginoutsystem.mapper: debug
