@@ -8,6 +8,7 @@ import com.gcky.durginoutsystem.entity.dto.VisitSubmitDTO;
 import com.gcky.durginoutsystem.service.VisitService;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.extern.slf4j.Slf4j;
+import jakarta.validation.Valid;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
 
@@ -25,7 +26,7 @@ public class VisitController {
     @RequireRole("DOCTOR")
     @PostMapping
     public Result<String> submitVisit(HttpServletRequest request,
-                                      @RequestBody VisitSubmitDTO visitDTO) {
+                                      @Valid @RequestBody VisitSubmitDTO visitDTO) {
         Long userId = (Long) request.getAttribute("userId");
         visitService.submitVisit(userId, visitDTO);
         return Result.success("提交成功");
@@ -73,7 +74,7 @@ public class VisitController {
     @Log("医师修改重提就诊记录")
     @RequireRole("DOCTOR")
     @PutMapping("/{id}")
-    public Result<String> updateVisit(@PathVariable Long id, @RequestBody VisitSubmitDTO visitDTO) {
+    public Result<String> updateVisit(@PathVariable Long id, @Valid @RequestBody VisitSubmitDTO visitDTO) {
         visitService.updateVisit(id, visitDTO);
         return Result.success("修改并重新提交成功");
     }
