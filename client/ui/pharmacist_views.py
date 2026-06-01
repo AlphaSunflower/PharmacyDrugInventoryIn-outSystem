@@ -997,6 +997,13 @@ class DrugManageView(QWidget):
         super().__init__()
         self.initUI()
         self.load_data()
+        # 延迟连接信号，等 widget 加入 MainWindow 层级后再绑定
+        QTimer.singleShot(0, self._connect_stock_signal)
+
+    def _connect_stock_signal(self):
+        mw = self.window()
+        if hasattr(mw, 'stock_changed'):
+            mw.stock_changed.connect(self.load_data)
 
     def initUI(self):
         layout = QVBoxLayout()
@@ -1108,12 +1115,6 @@ class DrugManageView(QWidget):
 
     def showEvent(self, event):
         self.load_data()
-        # 首次显示时连接库存变更信号（此时已加入窗口层级）
-        if not hasattr(self, '_signal_connected'):
-            self._signal_connected = True
-            mw = self.window()
-            if hasattr(mw, 'stock_changed'):
-                mw.stock_changed.connect(self.load_data)
         super().showEvent(event)
 
     def reset_search(self):

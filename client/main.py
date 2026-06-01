@@ -157,10 +157,10 @@ class LoginWindow(QWidget):
 if __name__ == '__main__':
     app = QApplication(sys.argv)
     
-    # 设置全局字体
+    # 设置全局字体 (先设 size 再设 family，避免 pointSize 读取到 -1)
     font = app.font()
+    font.setPixelSize(14)  # 用像素大小代替 pointSize，避免 CSS→QFont 转换时出现 -1
     font.setFamily(FONT_FAMILY)
-    font.setPointSize(10) # 基础字体大小
     app.setFont(font)
     
     # 尝试自动登录
