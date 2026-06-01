@@ -12,4 +12,5 @@ public interface VisitService {
     void returnVisit(Long visitId, String reason);
     void updateVisit(Long visitId, VisitSubmitDTO visitDTO);
     void cancelVisit(Long visitId);
+    long countByStatus(String status, Long doctorId);
 }

@@ -12,6 +12,7 @@ import jakarta.validation.Valid;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.HashMap;
 import java.util.Map;
 
 @Slf4j
@@ -85,5 +86,18 @@ public class VisitController {
     public Result<String> cancelVisit(@PathVariable Long id) {
         visitService.cancelVisit(id);
         return Result.success("就诊记录已取消");
+    }
+
+    /** 通知计数：待发药数 / 已退回数 / 新完成数，供前端轮询红点和弹窗 */
+    @GetMapping("/notification-counts")
+    public Result<Map<String, Object>> notificationCounts(HttpServletRequest request) {
+        String role = (String) request.getAttribute("role");
+        Long userId = (Long) request.getAttribute("userId");
+        Map<String, Object> counts = new HashMap<>();
+        counts.put("pendingCount", visitService.countByStatus("SUBMITTED", null));
+        if (!"PHARMACIST".equals(role)) {
+            counts.put("returnedCount", visitService.countByStatus("RETURNED", userId));
+        }
+        return Result.success(counts);
     }
 }

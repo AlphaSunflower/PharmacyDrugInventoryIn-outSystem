@@ -10,7 +10,11 @@
       "Bash(./mvnw clean *)",
       "Bash(./mvnw test *)",
       "Bash(git restore *)",
-      "Bash(git push *)"
+      "Bash(git push *)",
+      "Bash(python -c \"import ast; ast.parse\\(open\\('client/ui/main_window.py'\\).read\\(\\)\\); print\\('main_window OK'\\)\")",
+      "Bash(python -c \"import ast; ast.parse\\(open\\('client/ui/components.py'\\).read\\(\\)\\); print\\('components OK'\\)\")",
+      "Bash(../DurgInOutSystem/venv/Scripts/python.exe -c \"import ast; ast.parse\\(open\\('ui/main_window.py'\\).read\\(\\)\\); print\\('OK'\\)\")",
+      "Bash(python3 -c \"import ast; ast.parse\\(open\\('ui/main_window.py'\\).read\\(\\)\\); print\\('OK'\\)\")"
     ]
   }
 }

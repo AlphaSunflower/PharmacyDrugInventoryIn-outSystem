@@ -1344,3 +1344,91 @@ class ModernMessageBox(QMessageBox):
             """)
             
         return msg.exec()
+
+
+class ToastNotification(QFrame):
+    """右下角弹出通知，自动消失，点击可跳转"""
+    clicked = pyqtSignal()
+
+    def __init__(self, parent, message, duration=4000):
+        super().__init__(parent)
+        self.setFixedSize(320, 80)
+        self.setStyleSheet(f"""
+            ToastNotification {{
+                background-color: {WHITE};
+                border: 1px solid {GRAY_200};
+                border-radius: {RADIUS_MD};
+            }}
+        """)
+        shadow = QGraphicsDropShadowEffect(self)
+        shadow.setBlurRadius(20)
+        shadow.setOffset(0, 4)
+        shadow.setColor(QColor(0, 0, 0, 50))
+        self.setGraphicsEffect(shadow)
+
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(16, 12, 16, 12)
+        layout.setSpacing(10)
+
+        dot = QLabel("●")
+        dot.setStyleSheet(f"color: {ERROR_COLOR}; font-size: 14px; background: transparent;")
+        dot.setFixedWidth(20)
+        layout.addWidget(dot)
+
+        self.msg_label = QLabel(message)
+        self.msg_label.setStyleSheet(f"color: {GRAY_800}; font-size: {FONT_SIZE_SM}; background: transparent;")
+        self.msg_label.setWordWrap(True)
+        layout.addWidget(self.msg_label, 1)
+
+        QTimer.singleShot(duration, self.fade_out)
+
+    def mousePressEvent(self, event):
+        self.clicked.emit()
+        self.fade_out()
+
+    def fade_out(self):
+        try:
+            self.hide()
+            self.deleteLater()
+        except RuntimeError:
+            pass
+
+
+class BadgedSidebarButton(QPushButton):
+    """带红色数字徽标的侧边栏按钮"""
+    def __init__(self, text, parent=None):
+        super().__init__(text, parent)
+        self.setCheckable(True)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._badge_count = 0
+        self._base_text = text
+        self.setup_style()
+
+    def setup_style(self):
+        self.setStyleSheet(f"""
+            QPushButton {{
+                background-color: transparent;
+                color: {SIDEBAR_TEXT};
+                text-align: left;
+                padding: 14px 20px;
+                border: none;
+                font-size: {FONT_SIZE_SM};
+            }}
+            QPushButton:hover {{
+                background-color: {SIDEBAR_HOVER};
+            }}
+            QPushButton:checked {{
+                background-color: {PRIMARY_COLOR};
+                color: {WHITE};
+            }}
+        """)
+
+    def set_badge(self, count):
+        count = max(0, count)
+        if count == self._badge_count:
+            return
+        self._badge_count = count
+        if count > 0:
+            self.setText(f"{self._base_text}  ●{count}")
+        else:
+            self.setText(self._base_text)

@@ -402,4 +402,14 @@ public class VisitServiceImpl implements VisitService {
         visit.setUpdatedAt(LocalDateTime.now());
         visitMapper.updateById(visit);
     }
+
+    @Override
+    public long countByStatus(String status, Long doctorId) {
+        QueryWrapper<PatientVisit> wrapper = new QueryWrapper<>();
+        wrapper.eq("status", status);
+        if (doctorId != null) {
+            wrapper.eq("doctor_id", doctorId);
+        }
+        return visitMapper.selectCount(wrapper);
+    }
 }
