@@ -9,4 +9,5 @@ public interface StatsService {
     Map<String, Object> calculateMonthlySummary(String month);
     Map<String, Object> calculateYearlySummary(String year);
     List<Map<String, Object>> buildWorkloadExcelList(Map<String, Object> stats);
+    Map<String, Object> getInventoryCheckReport(String month);
 }

@@ -434,4 +434,44 @@ public class StatsServiceImpl implements StatsService {
         }
         return excelList;
     }
+
+    // ==================== 库存盘点报表 ====================
+
+    @Override
+    public Map<String, Object> getInventoryCheckReport(String month) {
+        Map<String, Object> result = new HashMap<>();
+
+        InventoryCheckTask task = inventoryTaskMapper.selectOne(
+                new QueryWrapper<InventoryCheckTask>().eq("month", month));
+        if (task == null) {
+            result.put("status", "NOT_FOUND");
+            result.put("details", Collections.emptyList());
+            return result;
+        }
+
+        result.put("status", task.getStatus());
+
+        List<InventoryCheckDetail> details = inventoryDetailMapper.selectList(
+                new QueryWrapper<InventoryCheckDetail>().eq("task_id", task.getId()));
+
+        // 批量加载药品名称
+        List<Long> drugIds = details.stream().map(InventoryCheckDetail::getDrugId).distinct().collect(Collectors.toList());
+        Map<Long, Drug> drugMap = drugIds.isEmpty() ? Collections.emptyMap() :
+                drugMapper.selectBatchIds(drugIds).stream().collect(Collectors.toMap(Drug::getId, d -> d));
+
+        List<Map<String, Object>> rows = new ArrayList<>();
+        for (InventoryCheckDetail d : details) {
+            Drug drug = drugMap.get(d.getDrugId());
+            Map<String, Object> row = new LinkedHashMap<>();
+            row.put("drugName", drug != null ? drug.getName() : "Unknown");
+            row.put("drugSpec", drug != null ? drug.getSpec() : "");
+            row.put("systemStock", d.getSystemStock());
+            row.put("actualStock", d.getActualStock());
+            row.put("discrepancy", d.getDiscrepancy());
+            row.put("remark", d.getRemark());
+            rows.add(row);
+        }
+        result.put("details", rows);
+        return result;
+    }
 }

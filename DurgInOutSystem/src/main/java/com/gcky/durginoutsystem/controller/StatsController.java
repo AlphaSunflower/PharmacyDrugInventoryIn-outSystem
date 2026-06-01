@@ -5,6 +5,7 @@ import com.gcky.durginoutsystem.annotation.RequireRole;
 import com.gcky.durginoutsystem.common.Result;
 import com.gcky.durginoutsystem.entity.excel.DrugStatsExcel;
 import com.gcky.durginoutsystem.entity.excel.OperationStatsExcel;
+import com.gcky.durginoutsystem.entity.excel.InventoryCheckExcel;
 import com.gcky.durginoutsystem.entity.excel.WorkloadSummaryExcel;
 import com.gcky.durginoutsystem.service.StatsService;
 import jakarta.servlet.http.HttpServletResponse;
@@ -47,6 +48,40 @@ public class StatsController {
     @GetMapping("/yearly-summary")
     public Result<Map<String, Object>> getYearlySummary(@RequestParam String year) {
         return Result.success(statsService.calculateYearlySummary(year));
+    }
+
+    // ==================== 库存盘点报表 ====================
+
+    @GetMapping("/inventory-check")
+    public Result<Map<String, Object>> getInventoryCheck(@RequestParam String month) {
+        return Result.success(statsService.getInventoryCheckReport(month));
+    }
+
+    @GetMapping("/inventory-check/export")
+    public void exportInventoryCheck(@RequestParam String month, HttpServletResponse response) throws IOException {
+        Map<String, Object> report = statsService.getInventoryCheckReport(month);
+        String status = (String) report.get("status");
+        if (!"COMPLETED".equals(status)) {
+            response.setStatus(400);
+            response.setContentType("application/json;charset=UTF-8");
+            response.getWriter().write("{\"code\":400,\"message\":\"该月份盘点尚未完成或不存在，无法导出\"}");
+            return;
+        }
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> details = (List<Map<String, Object>>) report.get("details");
+        List<InventoryCheckExcel> excelList = new ArrayList<>();
+        for (Map<String, Object> row : details) {
+            InventoryCheckExcel vo = new InventoryCheckExcel();
+            vo.setDrugName((String) row.get("drugName"));
+            vo.setDrugSpec((String) row.get("drugSpec"));
+            vo.setSystemStock((Integer) row.get("systemStock"));
+            vo.setActualStock((Integer) row.get("actualStock"));
+            vo.setDiscrepancy((Integer) row.get("discrepancy"));
+            vo.setRemark((String) row.get("remark"));
+            excelList.add(vo);
+        }
+        setExcelResponse(response, "库存盘点报表_" + month);
+        EasyExcel.write(response.getOutputStream(), InventoryCheckExcel.class).sheet("库存盘点").doWrite(excelList);
     }
 
     // ==================== Excel 导出 ====================

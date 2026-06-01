@@ -1649,11 +1649,40 @@ class StatsView(QWidget):
         
         self.yearly_summary_tab = ModernTable()
         yearly_layout.addWidget(self.yearly_summary_tab)
-        
+
+        # 库存盘点报表容器
+        self.inv_check_container = QWidget()
+        inv_layout = QVBoxLayout(self.inv_check_container)
+        inv_layout.setContentsMargins(SPACING_LG_INT, SPACING_LG_INT, SPACING_LG_INT, SPACING_LG_INT)
+        inv_top = QHBoxLayout()
+        inv_top.addWidget(ModernLabel("选择月份:", color=GRAY_800))
+        self.inv_check_month = QDateEdit()
+        self.inv_check_month.setDisplayFormat("yyyy-MM")
+        self.inv_check_month.setDate(QDate.currentDate())
+        self.style_dateedit(self.inv_check_month)
+        inv_top.addWidget(self.inv_check_month)
+        query_btn2 = ModernButton("查询报表", variant="primary")
+        query_btn2.clicked.connect(self._load_inv_check)
+        inv_top.addWidget(query_btn2)
+        export_btn2 = ModernButton("导出", variant="secondary")
+        export_btn2.clicked.connect(self._export_inv_check)
+        inv_top.addWidget(export_btn2)
+        inv_top.addStretch()
+        inv_layout.addLayout(inv_top)
+        self.inv_check_table = ModernTable()
+        self.inv_check_table.setColumnCount(6)
+        self.inv_check_table.setHorizontalHeaderLabels(["药品名称", "规格", "系统库存", "实盘数量", "差异", "备注"])
+        self.inv_check_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        inv_layout.addWidget(self.inv_check_table)
+        self.inv_check_warning = ModernLabel("", color=ERROR_COLOR)
+        self.inv_check_warning.setVisible(False)
+        inv_layout.addWidget(self.inv_check_warning)
+
         self.tabs.addTab(self.drug_stats_tab, "药品进销存月报")
         self.tabs.addTab(self.op_stats_tab, "运营统计月报")
         self.tabs.addTab(self.monthly_summary_tab, "月度汇总报表")
         self.tabs.addTab(self.yearly_summary_container, "年度汇总报表")
+        self.tabs.addTab(self.inv_check_container, "库存盘点报表")
         
         main_card.add_widget(self.tabs)
         layout.addWidget(main_card)
@@ -1713,6 +1742,9 @@ class StatsView(QWidget):
             url = "/stats/yearly-summary/export"
             default_name = f"年度汇总报表_{year}.xlsx"
             params = {"year": year}
+        elif current_tab_idx == 4:
+            self._export_inv_check()
+            return
         else:
             return
             
@@ -1751,6 +1783,8 @@ class StatsView(QWidget):
             self._load_monthly_summary(month)
         elif index == 3:
             self._load_yearly_summary(self.month_edit.date().toString("yyyy"))
+        elif index == 4:
+            self._load_inv_check()
         self._loaded_tabs.add(index)
 
     def load_stats(self):
@@ -1986,3 +2020,67 @@ class StatsView(QWidget):
 
             for r in range(len(rows)):
                 self.yearly_summary_tab.setRowHeight(r, 50)
+
+    def _load_inv_check(self):
+        month = self.inv_check_month.date().toString("yyyy-MM")
+        res = api_client.get("/stats/inventory-check", params={"month": month})
+        if res.status_code == 200 and res.json()['code'] == 200:
+            data = res.json()['data']
+            status = data.get('status', 'NOT_FOUND')
+            details = data.get('details', [])
+            self.inv_check_warning.setVisible(False)
+
+            if status == 'NOT_FOUND':
+                self.inv_check_warning.setText(f"{month} 月份暂无盘点记录")
+                self.inv_check_warning.setVisible(True)
+                self.inv_check_table.setRowCount(0)
+            elif status == 'PENDING':
+                self.inv_check_warning.setText(f"{month} 月份盘点尚未完成，无法导出")
+                self.inv_check_warning.setVisible(True)
+                self._render_inv_check_rows(details)
+            else:
+                self._render_inv_check_rows(details)
+
+    def _render_inv_check_rows(self, details):
+        self.inv_check_table.setRowCount(len(details))
+        for r, d in enumerate(details):
+            self.inv_check_table.setItem(r, 0, QTableWidgetItem(str(d.get('drugName', ''))))
+            self.inv_check_table.setItem(r, 1, QTableWidgetItem(str(d.get('drugSpec', ''))))
+            self.inv_check_table.setItem(r, 2, QTableWidgetItem(str(d.get('systemStock', 0))))
+            actual = d.get('actualStock')
+            self.inv_check_table.setItem(r, 3, QTableWidgetItem(str(actual) if actual is not None else "-"))
+            diff = d.get('discrepancy')
+            diff_item = QTableWidgetItem(str(diff) if diff is not None else "")
+            if diff is not None and diff != 0:
+                diff_item.setForeground(QColor(ERROR_COLOR))
+            self.inv_check_table.setItem(r, 4, diff_item)
+            self.inv_check_table.setItem(r, 5, QTableWidgetItem(str(d.get('remark', ''))))
+            self.inv_check_table.setRowHeight(r, 50)
+
+    def _export_inv_check(self):
+        month = self.inv_check_month.date().toString("yyyy-MM")
+        # 先检查状态
+        res = api_client.get("/stats/inventory-check", params={"month": month})
+        if res.status_code == 200 and res.json()['code'] == 200:
+            data = res.json()['data']
+            status = data.get('status', 'NOT_FOUND')
+            if status == 'NOT_FOUND':
+                ModernMessageBox.warning(self, "提示", f"{month} 月份暂无盘点记录，无法导出")
+                return
+            if status == 'PENDING':
+                ModernMessageBox.warning(self, "提示", f"{month} 月份盘点尚未完成，无法导出")
+                return
+
+        file_path, _ = QFileDialog.getSaveFileName(self, "保存文件", f"库存盘点报表_{month}.xlsx", "Excel Files (*.xlsx)")
+        if not file_path:
+            return
+        try:
+            res = api_client.get("/stats/inventory-check/export", params={"month": month})
+            if res.status_code == 200:
+                with open(file_path, 'wb') as f:
+                    f.write(res.content)
+                ModernMessageBox.information(self, "成功", "导出成功")
+            else:
+                ModernMessageBox.critical(self, "失败", "导出失败: 该月份盘点未完成或不存在")
+        except Exception as e:
+            ModernMessageBox.critical(self, "错误", f"导出出错: {str(e)}")

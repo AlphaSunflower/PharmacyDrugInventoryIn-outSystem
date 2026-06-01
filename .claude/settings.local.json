@@ -24,7 +24,8 @@
       "Bash(sed -i '/self\\\\.style_table\\(/d' doctor_views.py)",
       "Bash(sed -i 's/DiagnosisSelectionDialog$/DiagnosisSelectionDialog, ModernTable/' doctor_views.py)",
       "Bash(sed -i 's/QTableWidget\\(\\)/ModernTable\\(\\)/g' admin_views.py)",
-      "Bash(sed -i '/self\\\\.style_table\\(/d' admin_views.py)"
+      "Bash(sed -i '/self\\\\.style_table\\(/d' admin_views.py)",
+      "Bash(mysql *)"
     ]
   }
 }
