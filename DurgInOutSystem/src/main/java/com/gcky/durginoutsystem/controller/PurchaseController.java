@@ -77,6 +77,13 @@ public class PurchaseController {
             map.put("purchaseDate", p.getPurchaseDate());
             Drug drug = drugMap.get(p.getDrugId());
             map.put("drugName", drug != null ? drug.getName() : "Unknown");
+            // 从关联批次获取生产厂家
+            if (p.getBatchId() != null) {
+                com.gcky.durginoutsystem.entity.DrugBatch batch = drugBatchMapper.selectById(p.getBatchId());
+                map.put("manufacturer", batch != null ? batch.getManufacturer() : null);
+            } else {
+                map.put("manufacturer", null);
+            }
             return map;
         }).collect(Collectors.toList());
         
@@ -95,6 +102,7 @@ public class PurchaseController {
             batch.setPrice(purchase.getPrice());
             batch.setStockQuantity(purchase.getQuantity());
             batch.setInitialQuantity(purchase.getQuantity());
+            batch.setManufacturer(purchase.getManufacturer());
             batch.setCreatedAt(LocalDateTime.now());
             // 自动生成批次号: YYYYMMDD_HH_mm_drugId
             LocalDateTime now = LocalDateTime.now();

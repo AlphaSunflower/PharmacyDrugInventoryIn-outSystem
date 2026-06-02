@@ -233,6 +233,7 @@ class SearchableComboBox(QWidget):
         self.input = ModernInput(placeholder=self.tr("筛选..."))
         self.input.textChanged.connect(self.on_text_changed)
         self.input.installEventFilter(self)
+        self.input.setToolTip("↑↓ 选择 | Enter 确认 | ESC 关闭")
         
         self.popup_btn = QPushButton("▼")
         self.popup_btn.setFixedSize(30, 32) # match input height approx
@@ -471,16 +472,14 @@ class SearchableComboBox(QWidget):
                     if current_row >= 0:
                         self.on_item_clicked(current_row, 0)
                         return True
-                    else:
-                        # If popup is visible but no row selected, maybe select the first one?
-                        # Or just let it be (user might want to submit the text as is, e.g. Custom)
-                        # For now let's try to select first if only 1 item?
-                        pass
-                else:
-                    # If popup not visible, maybe show it?
-                    # self.show_popup()
-                    pass
-                    
+                elif not self.list_widget.isVisible():
+                    self.show_popup()
+                    return True
+            elif key == Qt.Key.Key_Escape:
+                if self.list_widget.isVisible():
+                    self.hide_popup()
+                    return True
+
         return super().eventFilter(source, event)
 
 class SmartDateEdit(QDateEdit):
@@ -1544,16 +1543,21 @@ class ModernInputDialog(QDialog):
         layout.addWidget(ModernLabel(label, size=FONT_SIZE_BASE, color=GRAY_700))
         self.input = ModernInput(placeholder="请输入...")
         self.input.setText(default_text)
+        self.input.setToolTip("Enter 确定 | ESC 取消")
+        self.input.returnPressed.connect(self.accept)
         layout.addWidget(self.input)
 
         btn_layout = QHBoxLayout()
         btn_layout.addStretch()
-        cancel_btn = ModernButton("取消", variant="secondary")
-        cancel_btn.clicked.connect(self.reject)
         ok_btn = ModernButton("确定", variant="primary")
+        ok_btn.setToolTip("Enter 确定")
+        ok_btn.setDefault(True)
         ok_btn.clicked.connect(self.accept)
-        btn_layout.addWidget(cancel_btn)
+        cancel_btn = ModernButton("取消", variant="secondary")
+        cancel_btn.setToolTip("ESC 取消")
+        cancel_btn.clicked.connect(self.reject)
         btn_layout.addWidget(ok_btn)
+        btn_layout.addWidget(cancel_btn)
         layout.addLayout(btn_layout)
 
     def get_text(self):

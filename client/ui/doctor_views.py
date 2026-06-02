@@ -42,21 +42,25 @@ class VisitCreateView(QWidget):
         
         self.name_input = ModernInput(placeholder="请输入患者姓名")
         self.name_input.setFixedWidth(120)
-        
+        self.name_input.setToolTip("Enter 下一项 | Alt+← 上一项 | Alt+→ 下一项")
+
         self.gender_input = QComboBox()
         self.gender_input.addItems(["男", "女"])
         self.gender_input.setFixedHeight(40)
         self.gender_input.setFixedWidth(60)
+        self.gender_input.setToolTip("Enter 下一项 | Alt+← 上一项 | Alt+→ 下一项")
         self.style_combobox(self.gender_input)
-        
+
         self.age_input = ModernInput(placeholder="年龄")
         self.age_input.setFixedWidth(60)
-        self.age_input.setValidator(None) # 可以加数字校验
+        self.age_input.setValidator(None)
+        self.age_input.setToolTip("Enter 下一项 | Alt+← 上一项 | Alt+→ 下一项")
 
         self.department_input = QComboBox()
         self.department_input.addItems(["本厂","外包","领导拿药"])
         self.department_input.setFixedHeight(40)
         self.department_input.setFixedWidth(100)
+        self.department_input.setToolTip("Enter 下一项 | Alt+← 上一项 | Alt+→ 下一项")
         self.style_combobox(self.department_input)
         
         self.date_input = QDateEdit()
@@ -65,6 +69,7 @@ class VisitCreateView(QWidget):
         self.date_input.setCalendarPopup(True)
         self.date_input.setFixedHeight(40)
         self.date_input.setFixedWidth(140)
+        self.date_input.setToolTip("Enter 下一项 | Alt+← 上一项 | Alt+→ 下一项")
         self.style_dateedit(self.date_input)
         
         # 诊断类型 (支持新增和删除，支持自定义，支持搜索)
@@ -155,12 +160,14 @@ class VisitCreateView(QWidget):
         self.drug_search_input = SearchableComboBox(placeholder="输入名称搜索/选择药品...")
         self.drug_search_input.item_selected.connect(self.handle_drug_selection)
         self.drug_search_input.text_changed.connect(self.on_drug_search_text_changed)
-        
+        self.drug_search_input.input.setToolTip("↑↓ 选择 | Enter 确认 | ESC 关闭")
+
         self.selected_drug_id = None
         self.selected_drug_name = None
-        
+
         self.quantity_input = ModernInput(placeholder="数量")
         self.quantity_input.setFixedWidth(120)
+        self.quantity_input.setToolTip("Enter 添加药品")
         
         self.unit_input = ModernInput(placeholder="单位")
         self.unit_input.setFixedWidth(60)
@@ -195,60 +202,47 @@ class VisitCreateView(QWidget):
         self.installEventFilter(self)
         self.setup_keyboard_navigation()
 
+    def _nav_fields(self):
+        return [
+            (self.name_input, None),
+            (self.gender_input, lambda: self.gender_input.showPopup()),
+            (self.age_input, None),
+            (self.department_input, lambda: self.department_input.showPopup()),
+            (self.date_input, lambda: self.date_input.open_calendar() if hasattr(self.date_input, 'open_calendar') else None),
+            (self.diag_search_input.input, lambda: self.diag_search_input.show_popup()),
+            (self.drug_search_input.input, lambda: self.drug_search_input.show_popup()),
+            (self.quantity_input, None),
+        ]
+
+    def _nav_step(self, source_widget, direction):
+        fields = self._nav_fields()
+        for i, (w, _) in enumerate(fields):
+            if w is source_widget:
+                target = i + direction
+                if 0 <= target < len(fields):
+                    wt, popup_fn = fields[target]
+                    wt.setFocus()
+                    if popup_fn:
+                        popup_fn()
+                    return True
+        return False
+
     def setup_keyboard_navigation(self):
-        # 1. 姓名 -> 性别
-        self.name_input.returnPressed.connect(self.focus_gender)
-        
-        # 2. 性别 -> 年龄
-        self.gender_input.activated.connect(self.focus_age)
-        
-        # 3. 年龄 -> 部门
-        self.age_input.returnPressed.connect(self.focus_department)
-        
-        # 4. 部门 -> 就诊日期
-        self.department_input.activated.connect(self.focus_date)
-        
-        # 5. 就诊日期 -> 临床诊断 (在 eventFilter 中处理回车)
+        self.name_input.returnPressed.connect(lambda: self._nav_step(self.name_input, 1))
+        self.name_input.installEventFilter(self)
+        self.age_input.returnPressed.connect(lambda: self._nav_step(self.age_input, 1))
+        self.age_input.installEventFilter(self)
+        self.gender_input.installEventFilter(self)
+        self.gender_input.activated.connect(lambda: self._nav_step(self.gender_input, 1))
+        self.department_input.installEventFilter(self)
+        self.department_input.activated.connect(lambda: self._nav_step(self.department_input, 1))
         self.date_input.installEventFilter(self)
-        
-        # 6. 自定义诊断 -> 药品搜索
-        self.custom_diag_input.returnPressed.connect(self.focus_drug_search)
-        
-        # 7. 数量 -> 添加药品
+        self.custom_diag_input.installEventFilter(self)
+        self.custom_diag_input.returnPressed.connect(lambda: self._nav_step(self.diag_search_input.input, 1))
+        self.quantity_input.installEventFilter(self)
         self.quantity_input.returnPressed.connect(self.add_drug_to_list)
-
-    def focus_department(self):
-        self.department_input.setFocus()
-        self.department_input.showPopup()
-
-    def focus_gender(self):
-        self.gender_input.setFocus()
-        self.gender_input.showPopup()
-
-    def focus_age(self):
-        self.age_input.setFocus()
-
-    def focus_date(self):
-        self.date_input.setFocus()
-        # 尝试展开日历。对于 QDateEdit，showPopup 是受保护的。
-        # 但 SmartDateEdit 继承自 QDateEdit，我们可以添加一个 public 方法。
-        # 或者发送 F4 键事件
-        # from PyQt6.QtGui import QKeyEvent
-        # event = QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_F4, Qt.KeyboardModifier.NoModifier)
-        # QApplication.sendEvent(self.date_input, event)
-        # 暂时只聚焦，让用户决定是否展开（用户说默认是今天，再回车就跳过）
-        # 如果必须展开，可以在 SmartDateEdit 加方法。
-        # 鉴于 SmartDateEdit 是我们自己定义的，去加一个 open_calendar 方法最好。
-        if hasattr(self.date_input, 'open_calendar'):
-            self.date_input.open_calendar()
-
-    def focus_diagnosis(self):
-        self.diag_search_input.input.setFocus()
-        self.diag_search_input.show_popup()
-
-    def focus_drug_search(self):
-        self.drug_search_input.input.setFocus()
-        self.drug_search_input.show_popup()
+        self.diag_search_input.input.installEventFilter(self)
+        self.drug_search_input.input.installEventFilter(self)
 
     def style_combobox(self, combo):
         combo.setStyleSheet(f"""
@@ -356,7 +350,7 @@ class VisitCreateView(QWidget):
             self.cancel_custom_btn.setVisible(False)
             
             # 选中常规诊断后，跳转到药品搜索
-            self.focus_drug_search()
+            self._nav_step(self.diag_search_input.input, 1)
 
     def on_drug_search_text_changed(self, text):
         self.drug_search_timer.start()
@@ -382,17 +376,25 @@ class VisitCreateView(QWidget):
         self.quantity_input.setFocus()
 
     def eventFilter(self, source, event):
-        # 处理 date_input 的回车事件
-        if source == self.date_input and event.type() == QEvent.Type.KeyPress:
-             if event.key() == Qt.Key.Key_Return or event.key() == Qt.Key.Key_Enter:
-                 self.focus_diagnosis()
-                 return True
+        if event.type() == QEvent.Type.KeyPress:
+            key = event.key()
+            mods = event.modifiers()
+            alt = bool(mods & Qt.KeyboardModifier.AltModifier)
 
-        if event.type() == QEvent.Type.MouseButtonPress:
-            click_pos = event.pos()
-            if source != self:
-                click_pos = source.mapTo(self, click_pos)
-                
+            # Alt+←/Alt+→: all fields support navigation
+            if alt and key == Qt.Key.Key_Left:
+                self._nav_step(source, -1)
+                return True
+            if alt and key == Qt.Key.Key_Right:
+                self._nav_step(source, 1)
+                return True
+
+            # Enter on specific widgets: navigate forward
+            nav_enter_widgets = [self.date_input, self.name_input, self.age_input]
+            if source in nav_enter_widgets and key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+                self._nav_step(source, 1)
+                return True
+
         return super().eventFilter(source, event)
 
     def cancel_custom_diagnosis(self):
@@ -548,7 +550,7 @@ class VisitCreateView(QWidget):
             row = selected_items[0].row()
             diag = list_widget.item(row, 0).data(Qt.ItemDataRole.UserRole)
             
-            reply = ModernMessageBox.question(dialog, "确认", f"确定要删除诊断分类“{diag['name']}”吗？\n注意：如果已有就诊记录使用了该分类，可能会导致删除失败。",
+            reply = ModernMessageBox.question(dialog, "确认", f"确定要删除诊断分类「{diag['name']}」吗？\n注意：如果已有就诊记录使用了该分类，可能会导致删除失败。",
                                          QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
             
             if reply == QMessageBox.StandardButton.Yes:
@@ -734,6 +736,7 @@ class VisitHistoryView(QWidget):
         
         self.search_input = ModernInput(placeholder="搜索患者姓名...")
         self.search_input.setFixedWidth(150)
+        self.search_input.returnPressed.connect(self.on_search)
         
         self.start_date = SmartDateEdit()
         self.start_date.setCalendarPopup(True)
@@ -796,7 +799,7 @@ class VisitHistoryView(QWidget):
         # 我们可以用 grid layout 替代，或者手动加 spacing。
         # Title 大概 100-150px? 
         # 让我们简单地加一个 spacing 占位，或者直接左对齐。
-        # 用户说“整体向左移动多一点”，如果之前是靠右（addStretch在左），现在改为靠左（addStretch在右），那就符合需求。
+        # 用户说"整体向左移动多一点"，如果之前是靠右（addStretch在左），现在改为靠左（addStretch在右），那就符合需求。
         # 之前 row2.addStretch(); row2.addWidget(...)
         
         # row2.addSpacing(180) # 估算标题宽度 + 间距
@@ -815,6 +818,7 @@ class VisitHistoryView(QWidget):
         # 第三行：状态筛选
         row3 = QHBoxLayout()
         self.status_filter = StatusFilterGroup()
+        self.status_filter.setToolTip("Enter 选中状态 | Alt+Enter 查询 | Alt+ESC 清空")
         self.status_filter.status_changed.connect(self.on_search)
         
         row3.addWidget(ModernLabel("状态筛选:"))
@@ -856,6 +860,7 @@ class VisitHistoryView(QWidget):
         layout.addWidget(table_card)
         
         self.setLayout(layout)
+        self.installEventFilter(self)
 
     def style_dateedit(self, date_edit):
         # 复用样式逻辑
@@ -914,6 +919,21 @@ class VisitHistoryView(QWidget):
     def on_search(self):
         self.pagination.current_page = 1
         self.load_data()
+
+    def eventFilter(self, source, event):
+        if event.type() == QEvent.Type.KeyPress:
+            key = event.key()
+            mods = event.modifiers()
+            alt = bool(mods & Qt.KeyboardModifier.AltModifier)
+            # Alt+Enter: query
+            if alt and key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+                self.on_search()
+                return True
+            # Alt+ESC: clear filters
+            if alt and key == Qt.Key.Key_Escape:
+                self.reset_search()
+                return True
+        return super().eventFilter(source, event)
 
     def load_data(self):
         page = self.pagination.current_page

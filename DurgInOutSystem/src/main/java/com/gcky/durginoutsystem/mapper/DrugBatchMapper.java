@@ -23,4 +23,12 @@ public interface DrugBatchMapper extends BaseMapper<DrugBatch> {
     /** 查询最新批次并加行锁（用于盘盈场景的先锁再写） */
     @Select("SELECT * FROM drug_batches WHERE drug_id = #{drugId} ORDER BY created_at DESC LIMIT 1 FOR UPDATE")
     DrugBatch selectLatestForUpdate(@Param("drugId") Long drugId);
+
+    /** 获取某药品最新批次（用于取进货价和生产厂家） */
+    @Select("SELECT * FROM drug_batches WHERE drug_id = #{drugId} ORDER BY created_at DESC LIMIT 1")
+    DrugBatch selectLatestByDrugId(@Param("drugId") Long drugId);
+
+    /** 获取某药品所有批次（按入库时间倒序，用于厂家历史列表） */
+    @Select("SELECT * FROM drug_batches WHERE drug_id = #{drugId} ORDER BY created_at DESC")
+    List<DrugBatch> selectAllByDrugIdOrderByCreatedAtDesc(@Param("drugId") Long drugId);
 }

@@ -3,6 +3,7 @@ import requests
 
 class APIClient:
     BASE_URL = os.environ.get("API_BASE_URL", "http://localhost:8080/api/v1")
+
     TIMEOUT = (5, 15)  # (connect, read) timeout in seconds
 
     def __init__(self):
@@ -120,6 +121,34 @@ class APIClient:
             params=params,
             timeout=self.TIMEOUT,
         )
+
+    # ==================== 采购计划 ====================
+
+    def generate_purchase_plan(self, month):
+        return self.post("/purchase-plans/generate", params={"month": month})
+
+    def get_purchase_plan_details(self, plan_id):
+        return self.get(f"/purchase-plans/{plan_id}/details")
+
+    def update_purchase_plan_detail(self, detail_id, planned_quantity=None, manufacturer=None):
+        data = {}
+        if planned_quantity is not None:
+            data["plannedQuantity"] = planned_quantity
+        if manufacturer is not None:
+            data["manufacturer"] = manufacturer
+        return self.put(f"/purchase-plans/details/{detail_id}", data=data)
+
+    def complete_purchase_plan(self, plan_id):
+        return self.post(f"/purchase-plans/{plan_id}/complete")
+
+    def reopen_purchase_plan(self, plan_id):
+        return self.post(f"/purchase-plans/{plan_id}/reopen")
+
+    def delete_purchase_plan(self, plan_id):
+        return self.delete(f"/purchase-plans/{plan_id}")
+
+    def get_drug_manufacturers(self, drug_id):
+        return self.get(f"/purchase-plans/drug/{drug_id}/manufacturers")
 
 
 api_client = APIClient()

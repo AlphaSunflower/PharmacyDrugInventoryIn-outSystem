@@ -103,11 +103,12 @@ class MainWindow(QMainWindow):
             menus = [("📝 就诊登记", 0, False), ("📋 就诊记录", 1, True), ("💊 药品查询", 2, False), ("📊 统计报表", 3, False)]
         elif role == 'PHARMACIST':
             menus = [("📦 待发药", 0, True), ("📋 发药记录", 1, False), ("🔍 库存盘点", 2, False),
-                     ("💊 药品管理", 3, False), ("📥 药品购进", 4, False), ("📊 统计报表", 5, False)]
+                     ("💊 药品管理", 3, False), ("📥 药品购进", 4, False), ("📋 采购计划", 5, False),
+                     ("📊 统计报表", 6, False)]
         elif role == 'ROOT':
             menus = [("📝 就诊登记", 0, False), ("📋 就诊记录", 1, True), ("📦 待发药", 2, True),
                      ("📋 发药记录", 3, False), ("🔍 库存盘点", 4, False), ("💊 药品管理", 5, False),
-                     ("📥 药品购进", 6, False), ("📊 统计报表", 7, False)]
+                     ("📥 药品购进", 6, False), ("📋 采购计划", 7, False), ("📊 统计报表", 8, False)]
 
         for text, index, notifiable in menus:
             if notifiable:
@@ -135,16 +136,17 @@ class MainWindow(QMainWindow):
             self.content_stack.addWidget(DrugQueryView())
             self.content_stack.addWidget(StatsView())
         elif role == 'PHARMACIST':
-            from ui.pharmacist_views import DispenseView, DispenseHistoryView, InventoryView, DrugManageView, StatsView, PurchaseView
+            from ui.pharmacist_views import DispenseView, DispenseHistoryView, InventoryView, DrugManageView, StatsView, PurchaseView, PurchasePlanView
             self.content_stack.addWidget(DispenseView())
             self.content_stack.addWidget(DispenseHistoryView())
             self.content_stack.addWidget(InventoryView())
             self.content_stack.addWidget(DrugManageView())
             self.content_stack.addWidget(PurchaseView())
+            self.content_stack.addWidget(PurchasePlanView())
             self.content_stack.addWidget(StatsView())
         elif role == 'ROOT':
             from ui.doctor_views import VisitCreateView, VisitHistoryView
-            from ui.pharmacist_views import DispenseView, DispenseHistoryView, InventoryView, DrugManageView, StatsView, PurchaseView
+            from ui.pharmacist_views import DispenseView, DispenseHistoryView, InventoryView, DrugManageView, StatsView, PurchaseView, PurchasePlanView
             self.content_stack.addWidget(VisitCreateView())
             self.content_stack.addWidget(VisitHistoryView())
             self.content_stack.addWidget(DispenseView())
@@ -152,6 +154,7 @@ class MainWindow(QMainWindow):
             self.content_stack.addWidget(InventoryView())
             self.content_stack.addWidget(DrugManageView())
             self.content_stack.addWidget(PurchaseView())
+            self.content_stack.addWidget(PurchasePlanView())
             self.content_stack.addWidget(StatsView())
 
         if self.menu_buttons:

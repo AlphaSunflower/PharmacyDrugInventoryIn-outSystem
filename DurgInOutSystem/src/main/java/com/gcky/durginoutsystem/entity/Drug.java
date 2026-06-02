@@ -25,4 +25,7 @@ public class Drug {
     
     @TableField(exist = false)
     private List<DrugBatch> batchList;
+
+    @TableField(exist = false)
+    private String manufacturer;
 }

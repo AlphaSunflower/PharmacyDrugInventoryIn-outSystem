@@ -93,6 +93,7 @@ public class DrugController {
         batch.setPrice(drug.getPrice());
         batch.setStockQuantity(0);
         batch.setInitialQuantity(0);
+        batch.setManufacturer(drug.getManufacturer());
         batch.setCreatedAt(LocalDateTime.now());
         drugBatchMapper.insert(batch);
 
@@ -102,6 +103,33 @@ public class DrugController {
     // 修改批次库存
     @Autowired
     private com.gcky.durginoutsystem.service.DrugStockService drugStockService;
+
+    // 修改批次信息（生产厂家等）
+    @Log("修改批次信息")
+    @PutMapping("/batch/{batchId}")
+    public Result<String> updateBatch(@PathVariable Long batchId, @RequestBody Map<String, Object> body) {
+        com.gcky.durginoutsystem.entity.DrugBatch batch = drugBatchMapper.selectById(batchId);
+        if (batch == null) {
+            return Result.error(404, "批次不存在");
+        }
+        if (body.containsKey("manufacturer")) {
+            batch.setManufacturer((String) body.get("manufacturer"));
+        }
+        if (body.containsKey("productionDate")) {
+            String dateStr = (String) body.get("productionDate");
+            if (dateStr != null && !dateStr.isEmpty()) {
+                batch.setProductionDate(java.time.LocalDate.parse(dateStr));
+            }
+        }
+        if (body.containsKey("expiryDate")) {
+            String dateStr = (String) body.get("expiryDate");
+            if (dateStr != null && !dateStr.isEmpty()) {
+                batch.setExpiryDate(java.time.LocalDate.parse(dateStr));
+            }
+        }
+        drugBatchMapper.updateById(batch);
+        return Result.success("批次信息更新成功");
+    }
 
     @Log("修改批次库存")
     @PutMapping("/batch/{batchId}/stock")

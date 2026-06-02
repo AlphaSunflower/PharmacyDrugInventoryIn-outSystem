@@ -1,7 +1,8 @@
-from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QLabel, QTableWidget, 
-                             QTableWidgetItem, QPushButton, QHBoxLayout, QMessageBox, 
+from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QLabel, QTableWidget,
+                             QTableWidgetItem, QPushButton, QHBoxLayout, QMessageBox,
                              QInputDialog, QDateEdit, QFormLayout, QLineEdit, QDialog,
-                             QTabWidget, QComboBox, QFileDialog, QHeaderView, QFrame)
+                             QTabWidget, QComboBox, QFileDialog, QHeaderView, QFrame,
+                             QScrollArea)
 from PyQt6.QtCore import QDate, Qt, QTimer, QEvent
 from PyQt6.QtGui import QColor, QIntValidator
 from utils.api_client import api_client
@@ -482,6 +483,16 @@ class DispenseHistoryView(QWidget):
         if source == getattr(self, 'diag_search_input', None) and event.type() == QEvent.Type.MouseButtonPress:
             self.open_diagnosis_dialog()
             return True
+        if event.type() == QEvent.Type.KeyPress:
+            key = event.key()
+            mods = event.modifiers()
+            alt = bool(mods & Qt.KeyboardModifier.AltModifier)
+            if alt and key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+                self.on_search()
+                return True
+            if alt and key == Qt.Key.Key_Escape:
+                self.reset_search()
+                return True
         return super().eventFilter(source, event)
 
     def open_diagnosis_dialog(self):
@@ -627,7 +638,13 @@ class InventoryView(QWidget):
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         self.table.cellChanged.connect(self.on_cell_changed)
         self.table.cellDoubleClicked.connect(self.on_cell_double_clicked)
+        # 键盘操作提示
+        hint_label = ModernLabel("⌨ ↑↓←→ 选择单元格 | 输入数字填写 | Enter 确认 | ESC 取消编辑", size=FONT_SIZE_XS, color=GRAY_500)
+        hint_label.setToolTip("键盘快捷键提示")
+        mv_card = main_card  # reference for adding widget
+        self.table.setToolTip("↑↓←→ 选择单元格 | 输入数字填写 | ESC 取消编辑")
         main_card.add_widget(self.table)
+        main_card.add_widget(hint_label)
         
         layout.addWidget(main_card)
         self.setLayout(layout)
@@ -869,6 +886,459 @@ class InventoryView(QWidget):
         else:
             ModernMessageBox.critical(self, "失败", f"提交失败: {res.json().get('message')}")
 
+class PurchasePlanView(QWidget):
+    def __init__(self):
+        super().__init__()
+        self.plan_id = None
+        self.plan_status = None
+        self.all_details = []
+        self.show_unfilled_only = False
+        self.is_clearing_placeholder = False
+        self.initUI()
+
+    def initUI(self):
+        layout = QVBoxLayout()
+        layout.setContentsMargins(SPACING_LG_INT, SPACING_LG_INT, SPACING_LG_INT, SPACING_LG_INT)
+        layout.setSpacing(SPACING_LG_INT)
+
+        main_card = ModernCard()
+
+        # 顶部操作栏
+        top_layout = QHBoxLayout()
+        top_layout.addWidget(ModernLabel("月份:", color=GRAY_800))
+        self.month_edit = QDateEdit()
+        self.month_edit.setDisplayFormat("yyyy-MM")
+        self.month_edit.setDate(QDate.currentDate())
+        self._style_dateedit(self.month_edit)
+        top_layout.addWidget(self.month_edit)
+
+        gen_btn = ModernButton("生成/获取当月采购计划", variant="primary")
+        gen_btn.clicked.connect(self.generate_plan)
+        top_layout.addWidget(gen_btn)
+
+        self.unfilled_btn = ModernButton("未填写", variant="warning")
+        self.unfilled_btn.clicked.connect(self.toggle_unfilled_filter)
+        self.unfilled_btn.setVisible(False)
+        top_layout.addWidget(self.unfilled_btn)
+
+        self.reopen_btn = ModernButton("重新修改", variant="warning")
+        self.reopen_btn.clicked.connect(self.reopen_plan)
+        self.reopen_btn.setVisible(False)
+        top_layout.addWidget(self.reopen_btn)
+
+        self.delete_btn = ModernButton("删除任务", variant="danger")
+        self.delete_btn.clicked.connect(self.delete_plan)
+        self.delete_btn.setVisible(False)
+        top_layout.addWidget(self.delete_btn)
+
+        self.complete_btn = ModernButton("完成本次采购计划", variant="primary")
+        self.complete_btn.clicked.connect(self.complete_plan)
+        top_layout.addWidget(self.complete_btn)
+
+        top_layout.addStretch()
+        main_card.add_layout(top_layout)
+
+        # 采购计划明细表格
+        self.table = ModernTable()
+        self.table.setColumnCount(7)
+        self.table.setHorizontalHeaderLabels(["ID", "药品名称", "规格", "单位", "计划数量", "进货价", "生产厂家"])
+        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        self.table.cellChanged.connect(self.on_cell_changed)
+        self.table.cellDoubleClicked.connect(self.on_cell_double_clicked)
+        self.table.cellClicked.connect(self.on_cell_clicked)
+        self.table.installEventFilter(self)
+        main_card.add_widget(self.table)
+        hint_label = ModernLabel("⌨ ↑↓←→ 选择单元格 | 计划数量: 输入填写 | 生产厂家: Enter 弹窗选择", size=FONT_SIZE_XS, color=GRAY_500)
+        main_card.add_widget(hint_label)
+
+        layout.addWidget(main_card)
+        self.setLayout(layout)
+        self.installEventFilter(self)
+
+    def _style_dateedit(self, date_edit):
+        date_edit.setStyleSheet(f"""
+            QDateEdit {{
+                padding: 5px 10px;
+                border: 1px solid {GRAY_300};
+                border-radius: {RADIUS_BASE};
+                background-color: {WHITE};
+                font-family: "{FONT_FAMILY}";
+                font-size: {FONT_SIZE_SM};
+            }}
+            QDateEdit::drop-down {{
+                border: none;
+                width: 20px;
+            }}
+        """)
+
+    def generate_plan(self):
+        month = self.month_edit.date().toString("yyyy-MM")
+        res = api_client.generate_purchase_plan(month)
+        if res.status_code == 200 and res.json()['code'] == 200:
+            data = res.json()['data']
+            self.plan_id = data['planId']
+            self.plan_status = data['status']
+            ModernMessageBox.information(self, "成功", f"已获取 {month} 月采购计划，ID: {self.plan_id}")
+            self.load_details()
+        else:
+            ModernMessageBox.critical(self, "错误", f"获取计划失败: {res.json().get('message')}")
+
+    def load_details(self):
+        if not self.plan_id: return
+        res = api_client.get_purchase_plan_details(self.plan_id)
+        if res.status_code == 200:
+            data = res.json()
+            if data['code'] == 200:
+                self.all_details = data['data']
+                self._update_button_state()
+                self.refresh_table()
+
+    def _update_button_state(self):
+        if not self.plan_id:
+            self.unfilled_btn.setVisible(False)
+            self.complete_btn.setVisible(True)
+            self.reopen_btn.setVisible(False)
+            self.delete_btn.setVisible(False)
+            self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+            return
+
+        if self.plan_status == 'PENDING':
+            self.unfilled_btn.setVisible(True)
+            self.complete_btn.setVisible(True)
+            self.reopen_btn.setVisible(False)
+            self.delete_btn.setVisible(True)
+            self.table.setEditTriggers(QTableWidget.EditTrigger.DoubleClicked |
+                                       QTableWidget.EditTrigger.AnyKeyPressed)
+        else:
+            self.unfilled_btn.setVisible(False)
+            self.complete_btn.setVisible(False)
+            self.reopen_btn.setVisible(True)
+            self.delete_btn.setVisible(True)
+            self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+
+    def toggle_unfilled_filter(self):
+        self.show_unfilled_only = not self.show_unfilled_only
+        if self.show_unfilled_only:
+            self.unfilled_btn.setText("显示全部")
+        else:
+            self.unfilled_btn.setText("未填写")
+        self.refresh_table()
+
+    def get_filtered_details(self):
+        if self.show_unfilled_only:
+            return [d for d in self.all_details
+                    if d.get('plannedQuantity') is None or d.get('plannedQuantity') <= 0]
+        return self.all_details
+
+    def on_cell_double_clicked(self, row, col):
+        if not self.plan_id or self.plan_status != 'PENDING': return
+        if col != 4: return
+
+        item = self.table.item(row, col)
+        if item and item.text() == "点击填写" and item.foreground().color() == QColor(GRAY_400):
+            self.is_clearing_placeholder = True
+            item.setText("")
+            item.setForeground(QColor(BLACK))
+            self.is_clearing_placeholder = False
+
+    def on_cell_clicked(self, row, col):
+        if not self.plan_id or self.plan_status != 'PENDING': return
+        if col != 6: return  # 只有生产厂家列可点击
+
+        item = self.table.item(row, col)
+        if not item: return
+        detail_id = self.table.item(row, 0).data(Qt.ItemDataRole.UserRole)
+        drug_id = None
+        for d in self.all_details:
+            if d['id'] == detail_id:
+                drug_id = d['drugId']
+                break
+        if drug_id is None: return
+
+        self._show_manufacturer_dialog(detail_id, drug_id, row)
+
+    def _show_manufacturer_dialog(self, detail_id, drug_id, row):
+        res = api_client.get_drug_manufacturers(drug_id)
+        manufacturers = []
+        if res.status_code == 200 and res.json()['code'] == 200:
+            manufacturers = res.json()['data']
+
+        dialog = QDialog(self)
+        dialog.setWindowTitle("选择生产厂家 (↑↓选择 Enter确认 Alt+Enter自定义 ESC关闭)")
+        dialog.setMinimumWidth(350)
+        dialog_layout = QVBoxLayout(dialog)
+
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll_content = QWidget()
+        scroll_layout = QVBoxLayout(scroll_content)
+
+        self._mfr_btns = []
+        if manufacturers:
+            scroll_layout.addWidget(ModernLabel("历史厂家（新→旧）:", color=GRAY_600))
+            for idx, m in enumerate(manufacturers):
+                btn = ModernButton(m, variant="outline")
+                btn.clicked.connect(lambda checked, val=m: self._on_manufacturer_selected(
+                    detail_id, val, row, dialog))
+                btn.setToolTip(f"按 ↑↓ 选择，Enter 确认")
+                scroll_layout.addWidget(btn)
+                self._mfr_btns.append(btn)
+            if self._mfr_btns:
+                self._mfr_btns[0].setFocus()
+                self._mfr_btns[0].setStyleSheet(self._mfr_btns[0].styleSheet().replace('outline','primary'))
+
+        scroll.setWidget(scroll_content)
+        dialog_layout.addWidget(scroll)
+
+        custom_btn = ModernButton("自定义填写... (Alt+Enter)", variant="primary")
+        custom_btn.clicked.connect(lambda: self._on_custom_manufacturer(detail_id, row, dialog))
+        custom_btn.setToolTip("Alt+Enter 自定义填写")
+        dialog_layout.addWidget(custom_btn)
+
+        cancel_btn = ModernButton("取消 (ESC)", variant="outline")
+        cancel_btn.clicked.connect(dialog.reject)
+        dialog_layout.addWidget(cancel_btn)
+
+        # 键盘导航
+        dialog.installEventFilter(self)
+        self._mfr_dialog = dialog
+        self._mfr_detail_id = detail_id
+        self._mfr_row = row
+        self._mfr_idx = 0
+
+        dialog.exec()
+
+    def _on_manufacturer_selected(self, detail_id, manufacturer, row, dialog):
+        dialog.accept()
+        res = api_client.update_purchase_plan_detail(detail_id, manufacturer=manufacturer)
+        if res.status_code == 200 and res.json()['code'] == 200:
+            # 更新本地数据
+            for d in self.all_details:
+                if d['id'] == detail_id:
+                    d['manufacturer'] = manufacturer
+                    break
+            self.refresh_table()
+
+    def _on_custom_manufacturer(self, detail_id, row, dialog):
+        dialog.reject()
+        dlg = ModernInputDialog(self, "自定义生产厂家", "请输入生产厂家名称:")
+        if dlg.exec() == QDialog.DialogCode.Accepted:
+            text = dlg.get_text()
+            if text and text.strip():
+                manufacturer = text.strip()
+                res = api_client.update_purchase_plan_detail(detail_id, manufacturer=manufacturer)
+                if res.status_code == 200 and res.json()['code'] == 200:
+                    for d in self.all_details:
+                        if d['id'] == detail_id:
+                            d['manufacturer'] = manufacturer
+                            break
+                    self.refresh_table()
+
+    def eventFilter(self, source, event):
+        # 厂家弹窗键盘导航
+        if hasattr(self, '_mfr_dialog') and self._mfr_dialog and source == self._mfr_dialog:
+            if event.type() == QEvent.Type.KeyPress:
+                key = event.key()
+                mods = event.modifiers()
+                alt = bool(mods & Qt.KeyboardModifier.AltModifier)
+                btns = getattr(self, '_mfr_btns', [])
+                idx = getattr(self, '_mfr_idx', 0)
+                if key == Qt.Key.Key_Down and idx < len(btns) - 1:
+                    self._mfr_idx = idx + 1
+                    btns[self._mfr_idx].setFocus()
+                    btns[self._mfr_idx].setStyleSheet(btns[self._mfr_idx].styleSheet().replace('outline','primary'))
+                    if idx >= 0:
+                        btns[idx].setStyleSheet(btns[idx].styleSheet().replace('primary','outline'))
+                    return True
+                if key == Qt.Key.Key_Up and idx > 0:
+                    self._mfr_idx = idx - 1
+                    btns[self._mfr_idx].setFocus()
+                    btns[self._mfr_idx].setStyleSheet(btns[self._mfr_idx].styleSheet().replace('outline','primary'))
+                    if idx < len(btns):
+                        btns[idx].setStyleSheet(btns[idx].styleSheet().replace('primary','outline'))
+                    return True
+                if key in (Qt.Key.Key_Return, Qt.Key.Key_Enter) and not alt and 0 <= idx < len(btns):
+                    btns[idx].click()
+                    return True
+                if alt and key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+                    self._on_custom_manufacturer(self._mfr_detail_id, self._mfr_row, self._mfr_dialog)
+                    return True
+                if key == Qt.Key.Key_Escape:
+                    self._mfr_dialog.reject()
+                    return True
+                return True
+        # Enter on table with column 6 (生产厂家) selected: open dialog
+        if source == self.table and event.type() == QEvent.Type.KeyPress:
+            if event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+                row = self.table.currentRow()
+                col = self.table.currentColumn()
+                if col == 6 and row >= 0:
+                    self.on_cell_clicked(row, col)
+                    return True
+        return super().eventFilter(source, event)
+
+    def on_cell_changed(self, row, col):
+        if getattr(self, 'is_clearing_placeholder', False): return
+        if not self.plan_id or self.plan_status != 'PENDING': return
+        if col != 4: return  # 只有计划数量列可编辑
+
+        detail_id = self.table.item(row, 0).data(Qt.ItemDataRole.UserRole)
+        item = self.table.item(row, col)
+
+        if item.text() == "点击填写" and item.foreground().color() == QColor(GRAY_400):
+            return
+
+        text = item.text().strip()
+        if text == "":
+            self.table.blockSignals(True)
+            item.setText("点击填写")
+            item.setForeground(QColor(GRAY_400))
+            self.table.blockSignals(False)
+            planned_val = None
+        else:
+            if text.isdigit():
+                planned_val = int(text)
+            else:
+                ModernMessageBox.warning(self, "提示", "计划数量必须为数字")
+                self.table.blockSignals(True)
+                item.setText("")
+                self.table.blockSignals(False)
+                return
+
+        res = api_client.update_purchase_plan_detail(detail_id, planned_quantity=planned_val)
+        if res.status_code == 200 and res.json()['code'] == 200:
+            for d in self.all_details:
+                if d['id'] == detail_id:
+                    d['plannedQuantity'] = planned_val
+                    break
+            if planned_val is not None:
+                item.setForeground(QColor(BLACK))
+
+    def refresh_table(self):
+        self.table.blockSignals(True)
+        filtered = self.get_filtered_details()
+        self.table.setRowCount(len(filtered))
+        for r, item in enumerate(filtered):
+            detail_id = item.get('id')
+            drug_name = item.get('drugName')
+            spec = item.get('spec') or ''
+            unit = item.get('unit') or ''
+            purchase_price = item.get('purchasePrice')
+            manufacturer = item.get('manufacturer') or ''
+
+            # ID
+            id_item = QTableWidgetItem(str(detail_id))
+            id_item.setFlags(id_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+            self.table.setItem(r, 0, id_item)
+            self.table.item(r, 0).setData(Qt.ItemDataRole.UserRole, detail_id)
+
+            # 药品名称
+            name_item = QTableWidgetItem(drug_name)
+            name_item.setFlags(name_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+            self.table.setItem(r, 1, name_item)
+
+            # 规格
+            spec_item = QTableWidgetItem(spec)
+            spec_item.setFlags(spec_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+            self.table.setItem(r, 2, spec_item)
+
+            # 单位
+            unit_item = QTableWidgetItem(unit)
+            unit_item.setFlags(unit_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+            self.table.setItem(r, 3, unit_item)
+
+            # 计划数量（可编辑）
+            planned = item.get('plannedQuantity')
+            qty_text = str(planned) if planned is not None else ""
+            qty_item = QTableWidgetItem(qty_text)
+            if self.plan_status == 'PENDING':
+                qty_item.setFlags(qty_item.flags() | Qt.ItemFlag.ItemIsEditable)
+            else:
+                qty_item.setFlags(qty_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+            if not qty_text:
+                qty_item.setText("点击填写")
+                qty_item.setForeground(QColor(GRAY_400))
+            self.table.setItem(r, 4, qty_item)
+
+            # 进货价
+            price_text = f"{purchase_price:.2f}" if purchase_price else ""
+            price_item = QTableWidgetItem(price_text)
+            price_item.setFlags(price_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+            self.table.setItem(r, 5, price_item)
+
+            # 生产厂家（可点击，非直接编辑）
+            mfr_text = manufacturer if manufacturer else "点击选择"
+            mfr_item = QTableWidgetItem(mfr_text)
+            mfr_item.setFlags(mfr_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+            if not manufacturer:
+                mfr_item.setForeground(QColor(GRAY_400))
+            self.table.setItem(r, 6, mfr_item)
+
+            self.table.setRowHeight(r, 50)
+
+        self.table.blockSignals(False)
+
+    def complete_plan(self):
+        if not self.plan_id: return
+        # 客户端预检
+        unfilled = [d for d in self.all_details
+                     if d.get('plannedQuantity') is None or d.get('plannedQuantity') <= 0]
+        if unfilled:
+            names = [d.get('drugName', 'Unknown') for d in unfilled[:5]]
+            if len(unfilled) > 5:
+                names.append(f"...等 {len(unfilled)} 个药品")
+            ModernMessageBox.warning(self, "提示",
+                                     f"以下药品的计划数量未填写：\n" + "\n".join(names))
+            return
+
+        reply = ModernMessageBox.question(self, "确认", "确定要完成本次采购计划吗？完成后将无法编辑。",
+                                          QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+
+        res = api_client.complete_purchase_plan(self.plan_id)
+        if res.status_code == 200 and res.json()['code'] == 200:
+            ModernMessageBox.information(self, "成功", "采购计划已完成")
+            self.plan_status = 'COMPLETED'
+            self._update_button_state()
+            self.refresh_table()
+        else:
+            ModernMessageBox.critical(self, "失败", f"提交失败: {res.json().get('message')}")
+
+    def reopen_plan(self):
+        if not self.plan_id: return
+        reply = ModernMessageBox.question(self, "确认", "确定要重新开启采购计划进行修改吗？",
+                                          QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+        res = api_client.reopen_purchase_plan(self.plan_id)
+        if res.status_code == 200 and res.json()['code'] == 200:
+            ModernMessageBox.information(self, "成功", "采购计划已重新开启，可进行修改")
+            self.plan_status = 'PENDING'
+            self._update_button_state()
+            self.load_details()
+        else:
+            ModernMessageBox.critical(self, "失败", f"操作失败: {res.json().get('message')}")
+
+    def delete_plan(self):
+        if not self.plan_id: return
+        reply = ModernMessageBox.question(self, "确认", "确定要删除该采购计划吗？此操作不可恢复！",
+                                          QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+        res = api_client.delete_purchase_plan(self.plan_id)
+        if res.status_code == 200 and res.json()['code'] == 200:
+            ModernMessageBox.information(self, "成功", "采购计划已删除")
+            self.plan_id = None
+            self.plan_status = None
+            self.all_details = []
+            self.show_unfilled_only = False
+            self.unfilled_btn.setText("未填写")
+            self.table.setRowCount(0)
+            self._update_button_state()
+        else:
+            ModernMessageBox.critical(self, "失败", f"操作失败: {res.json().get('message')}")
+
 class DrugManageView(QWidget):
     def __init__(self):
         super().__init__()
@@ -892,6 +1362,7 @@ class DrugManageView(QWidget):
         top = QHBoxLayout()
         self.search_input = ModernInput(placeholder="搜索药品名称...")
         self.search_input.setFixedWidth(200)
+        self.search_input.returnPressed.connect(self.on_search)
         
         self.min_stock_input = ModernInput(placeholder="最小库存")
         self.min_stock_input.setFixedWidth(100)
@@ -918,6 +1389,8 @@ class DrugManageView(QWidget):
         top.addWidget(ModernLabel("-"))
         top.addWidget(self.max_stock_input)
         top.addWidget(search_btn)
+        hint = ModernLabel("⌨ Enter 搜索 | 搜索框+Enter 查询", size=FONT_SIZE_XS, color=GRAY_500)
+        top.addWidget(hint)
         top.addWidget(clear_btn)
         top.addWidget(add_btn)
         top.addStretch()
@@ -1059,18 +1532,19 @@ class DrugManageView(QWidget):
         layout.addWidget(ModernLabel("库存批次信息", size=FONT_SIZE_LG, weight=FONT_WEIGHT_BOLD))
         
         table = ModernTable()
-        table.setColumnCount(4)
-        table.setHorizontalHeaderLabels(["批次号", "进价", "剩余库存", "有效期"])
+        table.setColumnCount(5)
+        table.setHorizontalHeaderLabels(["批次号", "进价", "剩余库存", "生产厂家", "有效期"])
         table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
-        
+
         batches = drug.get('batchList', [])
         table.setRowCount(len(batches))
-        
+
         for r, b in enumerate(batches):
             table.setItem(r, 0, QTableWidgetItem(b.get('batchNo') or "-"))
             table.setItem(r, 1, QTableWidgetItem(str(b.get('price', 0))))
             table.setItem(r, 2, QTableWidgetItem(str(b.get('stockQuantity', 0))))
-            table.setItem(r, 3, QTableWidgetItem(str(b.get('expiryDate') or "未设置")))
+            table.setItem(r, 3, QTableWidgetItem(b.get('manufacturer') or ""))
+            table.setItem(r, 4, QTableWidgetItem(str(b.get('expiryDate') or "未设置")))
             table.setRowHeight(r, 45)
             
         layout.addWidget(table)
@@ -1094,7 +1568,7 @@ class DrugManageView(QWidget):
     def show_drug_dialog(self, title, drug=None):
         dialog = QDialog(self)
         dialog.setWindowTitle(title)
-        dialog.setFixedSize(400, 400)
+        dialog.setFixedSize(400, 460)
         dialog.setStyleSheet(f"background-color: {WHITE};")
         
         layout = QVBoxLayout(dialog)
@@ -1107,43 +1581,47 @@ class DrugManageView(QWidget):
         spec_edit = ModernInput(placeholder="请输入规格")
         unit_edit = ModernInput(placeholder="请输入单位")
         price_edit = ModernInput(placeholder="请输入价格")
-        
+        manufacturer_edit = ModernInput(placeholder="请输入生产厂家")
+
         if drug:
             name_edit.setText(drug['name'])
             spec_edit.setText(drug['spec'])
             unit_edit.setText(drug['unit'])
             price_edit.setText(str(drug['price']))
-        
+
         stock_edit = None
         batch_combo = None
         current_batch_id = None
+        current_manufacturer = None
 
         if drug:
             stock_edit = ModernInput(placeholder="请输入库存")
             batches = drug.get('batchList', [])
-            
+
             if len(batches) > 1:
                 batch_combo = QComboBox()
                 batch_combo.setStyleSheet(f"padding: 8px; border: 1px solid {GRAY_300}; border-radius: {RADIUS_BASE}; background-color: {WHITE};")
                 for b in batches:
                     batch_combo.addItem(f"批次:{b.get('batchNo', 'N/A')} (余:{b['stockQuantity']})", b)
-                
+
                 def on_batch_changed(index):
                     b = batch_combo.itemData(index)
                     stock_edit.setText(str(b['stockQuantity']))
-                
+                    manufacturer_edit.setText(b.get('manufacturer') or '')
+
                 batch_combo.currentIndexChanged.connect(on_batch_changed)
-                # Init with first batch
                 if batches:
                     stock_edit.setText(str(batches[0]['stockQuantity']))
-                
+                    manufacturer_edit.setText(batches[0].get('manufacturer') or '')
+
             elif len(batches) == 1:
                 current_batch_id = batches[0]['id']
                 stock_edit.setText(str(batches[0]['stockQuantity']))
+                current_manufacturer = batches[0].get('manufacturer') or ''
+                manufacturer_edit.setText(current_manufacturer)
             else:
-                # No batches - fallback to total stock
                 stock_edit.setText(str(drug.get('stockQuantity', 0)))
-        
+
         form_layout.addRow(ModernLabel("名称:"), name_edit)
         form_layout.addRow(ModernLabel("规格:"), spec_edit)
         form_layout.addRow(ModernLabel("单位:"), unit_edit)
@@ -1151,6 +1629,8 @@ class DrugManageView(QWidget):
         if drug:
             if batch_combo:
                 form_layout.addRow(ModernLabel("选择批次:"), batch_combo)
+        form_layout.addRow(ModernLabel("生产厂家:"), manufacturer_edit)
+        if drug:
             form_layout.addRow(ModernLabel("库存:"), stock_edit)
             
         layout.addLayout(form_layout)
@@ -1173,24 +1653,21 @@ class DrugManageView(QWidget):
                 "unit": unit_edit.text(),
                 "price": float(price_edit.text() or 0)
             }
-            
+
             stock_updated_via_batch = False
 
             if stock_edit and drug:
                 try:
                     new_stock = int(stock_edit.text())
-                    
-                    # Determine target batch
+
                     target_batch_id = None
                     if batch_combo:
-                        target_batch_id = batch_combo.currentData()['id']
+                        target_batch_id = batch_combo.currentData()["id"]
                     elif current_batch_id:
                         target_batch_id = current_batch_id
-                    
-                    # Check if change needed
+
                     should_update = False
                     if target_batch_id:
-                        # Find original stock for comparison
                         original_stock = 0
                         batches = drug.get('batchList', [])
                         for b in batches:
@@ -1207,11 +1684,11 @@ class DrugManageView(QWidget):
                     if should_update:
                         msg = ModernMessageBox(dialog)
                         msg.setWindowTitle("修改库存确认")
-                        msg.setText("您正在修改药品库存。请注意：如果是想购进药品，请到‘药品购进’模块进行购进操作。")
+                        msg.setText("您正在修改药品库存。请注意：如果是想购进药品，请到'药品购进'模块进行购进操作。")
                         msg.setIcon(QMessageBox.Icon.Warning)
                         yes_btn = msg.addButton("确认修改", QMessageBox.ButtonRole.AcceptRole)
                         no_btn = msg.addButton("取消", QMessageBox.ButtonRole.RejectRole)
-                        
+
                         yes_btn.setStyleSheet(f"""
                             QPushButton {{
                                 background-color: {PRIMARY_COLOR};
@@ -1236,15 +1713,13 @@ class DrugManageView(QWidget):
                                 background-color: {GRAY_50};
                             }}
                         """)
-                        
+
                         msg.exec()
-                        
+
                         if msg.clickedButton() == no_btn:
                             return
-                            
-                        # Execute Batch Update if applicable
+
                         if target_batch_id:
-                             # Use params for query parameters
                              res_batch = api_client.put(f"/drugs/batch/{target_batch_id}/stock", params={"quantity": new_stock})
                              if res_batch.status_code == 200 and res_batch.json()['code'] == 200:
                                  stock_updated_via_batch = True
@@ -1259,15 +1734,28 @@ class DrugManageView(QWidget):
             if drug:
                 res = api_client.put(f"/drugs/{drug['id']}", data)
             else:
+                data["manufacturer"] = manufacturer_edit.text().strip()
                 res = api_client.post("/drugs", data)
-                
+
             if res.status_code == 200 and res.json()['code'] == 200:
+                # 编辑模式：更新批次厂家
+                if drug:
+                    new_mfr = manufacturer_edit.text().strip()
+                    target_bid = batch_combo.currentData()['id'] if batch_combo else (current_batch_id or None)
+                    old_mfr = None
+                    if target_bid:
+                        for b in drug.get('batchList', []):
+                            if b['id'] == target_bid:
+                                old_mfr = b.get('manufacturer') or ''
+                                break
+                    if target_bid and new_mfr != old_mfr:
+                        api_client.put(f"/drugs/batch/{target_bid}", data={"manufacturer": new_mfr})
                 ModernMessageBox.information(dialog, "成功", "保存成功")
                 dialog.accept()
                 self.load_data()
             else:
                 ModernMessageBox.critical(dialog, "失败", f"保存失败: {res.json().get('message')}")
-                
+
         save_btn.clicked.connect(save)
         dialog.exec()
 
@@ -1278,6 +1766,8 @@ class PurchaseView(QWidget):
         self.purchase_list = []
         self.existing_list = []
         self.selected_drug_id = None
+        self.manufacturer_input = None
+        self.date_input = None  # 防止 eventFilter 提前触发
         self.initUI()
         
         self.load_purchases()
@@ -1337,6 +1827,8 @@ class PurchaseView(QWidget):
 
         self.quantity_input = ModernInput(placeholder="数量")
         self.quantity_input.setFixedWidth(100)
+        self.quantity_input.setToolTip("Enter 下一项")
+        self.quantity_input.returnPressed.connect(lambda: self.amount_input.setFocus())
         
         self.unit_input = ModernInput(placeholder="单位")
         self.unit_input.setFixedWidth(60)
@@ -1344,9 +1836,18 @@ class PurchaseView(QWidget):
         
         self.amount_input = ModernInput(placeholder="总金额")
         self.amount_input.setFixedWidth(120)
-        
+        self.amount_input.setToolTip("Enter 下一项")
+        self.amount_input.returnPressed.connect(lambda: self.manufacturer_input.setFocus())
+
+        self.manufacturer_input = ModernInput(placeholder="生产厂家")
+        self.manufacturer_input.setFixedWidth(150)
+        self.manufacturer_input.setToolTip("有数据Enter→日期 | 空Enter→选择 | Alt+Enter→自定义")
+        self.manufacturer_input.installEventFilter(self)
+
         self.date_input = QDateEdit()
         self.date_input.setDate(QDate.currentDate())
+        self.date_input.setToolTip("Enter 添加待提交")
+        self.date_input.installEventFilter(self)
         self.style_dateedit(self.date_input)
         
         add_btn = ModernButton("添加待提交", variant="secondary")
@@ -1359,6 +1860,8 @@ class PurchaseView(QWidget):
         form_layout.addWidget(self.unit_input)
         form_layout.addWidget(ModernLabel("总金额:"))
         form_layout.addWidget(self.amount_input)
+        form_layout.addWidget(ModernLabel("厂家:"))
+        form_layout.addWidget(self.manufacturer_input)
         form_layout.addWidget(ModernLabel("日期:"))
         form_layout.addWidget(self.date_input)
         form_layout.addWidget(add_btn)
@@ -1370,8 +1873,8 @@ class PurchaseView(QWidget):
         # 3. 列表
         table_card = ModernCard()
         self.table = ModernTable()
-        self.table.setColumnCount(8)
-        self.table.setHorizontalHeaderLabels(["状态", "日期", "药品名称", "数量", "单位", "总金额", "单价", "操作"])
+        self.table.setColumnCount(9)
+        self.table.setHorizontalHeaderLabels(["状态", "日期", "药品名称", "数量", "单位", "总金额", "单价", "生产厂家", "操作"])
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         
         table_card.add_widget(self.table)
@@ -1436,11 +1939,141 @@ class PurchaseView(QWidget):
             self.selected_drug_id = drug['id']
             self.drug_search_input.setText(f"{drug['name']} ({drug['spec']})")
             self.unit_input.setText(drug['unit'])
+            self.manufacturer_input.clear()
+            res = api_client.get_drug_manufacturers(drug['id'])
+            if res.status_code == 200 and res.json()['code'] == 200:
+                manufacturers = res.json()['data']
+                if manufacturers:
+                    self.manufacturer_input.setText(manufacturers[0])
+            self.quantity_input.setFocus()
+            self.quantity_input.selectAll()
+
+    def _show_manufacturer_dialog_for_purchase(self):
+        if not self.selected_drug_id: return
+        res = api_client.get_drug_manufacturers(self.selected_drug_id)
+        manufacturers = []
+        if res.status_code == 200 and res.json()['code'] == 200:
+            manufacturers = res.json()['data']
+
+        dialog = QDialog(self)
+        dialog.setWindowTitle("选择生产厂家 (↑↓选择 Enter确认 Alt+Enter自定义 ESC关闭)")
+        dialog.setMinimumWidth(350)
+        dialog_layout = QVBoxLayout(dialog)
+
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll_content = QWidget()
+        scroll_layout = QVBoxLayout(scroll_content)
+
+        self._pur_mfr_btns = []
+        self._pur_mfr_idx = 0
+        if manufacturers:
+            scroll_layout.addWidget(ModernLabel("历史厂家（新→旧）:", color=GRAY_600))
+            for idx, m in enumerate(manufacturers):
+                btn = ModernButton(m, variant="outline")
+                btn.clicked.connect(lambda checked, val=m: self._on_purchase_manufacturer_selected(val, dialog))
+                scroll_layout.addWidget(btn)
+                self._pur_mfr_btns.append(btn)
+            if self._pur_mfr_btns:
+                self._pur_mfr_btns[0].setFocus()
+                self._pur_mfr_btns[0].setStyleSheet(self._pur_mfr_btns[0].styleSheet().replace("outline","primary"))
+
+        scroll.setWidget(scroll_content)
+        dialog_layout.addWidget(scroll)
+
+        custom_btn = ModernButton("自定义填写... (Alt+Enter)", variant="primary")
+        custom_btn.clicked.connect(lambda: self._on_purchase_custom_manufacturer(dialog))
+        dialog_layout.addWidget(custom_btn)
+
+        cancel_btn = ModernButton("取消 (ESC)", variant="outline")
+        cancel_btn.clicked.connect(dialog.reject)
+        dialog_layout.addWidget(cancel_btn)
+
+        self._pur_mfr_dialog = dialog
+        dialog.installEventFilter(self)
+
+        if dialog.exec() == 42:
+            self._on_purchase_custom_manufacturer(dialog)
+        self._pur_mfr_dialog = None
+
+    def _on_purchase_manufacturer_selected(self, manufacturer, dialog):
+        dialog.accept()
+        self.manufacturer_input.setText(manufacturer)
+
+    def _on_purchase_custom_manufacturer(self, dialog):
+        dlg = ModernInputDialog(self, "自定义生产厂家", "请输入生产厂家名称:")
+        if dlg.exec() == QDialog.DialogCode.Accepted:
+            text = dlg.get_text()
+            if text and text.strip():
+                self.manufacturer_input.setText(text.strip())
+        # 关闭厂家选择窗口
+        dialog.accept()
+        self._pur_mfr_dialog = None
 
     def eventFilter(self, source, event):
-        if source == self.drug_search_input and event.type() == QEvent.Type.MouseButtonPress:
-            self.open_drug_selection_dialog()
-            return True
+        if source == self.drug_search_input:
+            if event.type() == QEvent.Type.MouseButtonPress:
+                self.open_drug_selection_dialog()
+                return True
+            if event.type() == QEvent.Type.KeyPress and event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+                self.open_drug_selection_dialog()
+                return True
+
+        if source == self.manufacturer_input and self.manufacturer_input is not None:
+            if event.type() == QEvent.Type.MouseButtonPress:
+                self._show_manufacturer_dialog_for_purchase()
+                return True
+            if event.type() == QEvent.Type.KeyPress:
+                key = event.key()
+                if key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+                    mods = event.modifiers()
+                    if mods & Qt.KeyboardModifier.AltModifier:
+                        self._show_manufacturer_dialog_for_purchase()
+                        return True
+                    if self.manufacturer_input.text().strip():
+                        self.date_input.setFocus()
+                    else:
+                        self._show_manufacturer_dialog_for_purchase()
+                    return True
+
+        if source == self.date_input and self.date_input is not None and event.type() == QEvent.Type.KeyPress:
+            if event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+                self.add_to_list()
+                return True
+
+        # Purchase manufacturer dialog keyboard (eventFilter on dialog)
+        pur_dlg = getattr(self, '_pur_mfr_dialog', None)
+        if pur_dlg and source == pur_dlg:
+            if event.type() == QEvent.Type.KeyPress:
+                key = event.key()
+                mods = event.modifiers()
+                alt = bool(mods & Qt.KeyboardModifier.AltModifier)
+                btns = getattr(self, '_pur_mfr_btns', [])
+                idx = getattr(self, '_pur_mfr_idx', 0)
+                if key == Qt.Key.Key_Down and idx < len(btns) - 1:
+                    self._pur_mfr_idx = idx + 1
+                    btns[self._pur_mfr_idx].setFocus()
+                    btns[self._pur_mfr_idx].setStyleSheet(btns[self._pur_mfr_idx].styleSheet().replace('outline','primary'))
+                    if idx >= 0:
+                        btns[idx].setStyleSheet(btns[idx].styleSheet().replace('primary','outline'))
+                    return True
+                if key == Qt.Key.Key_Up and idx > 0:
+                    self._pur_mfr_idx = idx - 1
+                    btns[self._pur_mfr_idx].setFocus()
+                    btns[self._pur_mfr_idx].setStyleSheet(btns[self._pur_mfr_idx].styleSheet().replace('outline','primary'))
+                    if idx < len(btns):
+                        btns[idx].setStyleSheet(btns[idx].styleSheet().replace('primary','outline'))
+                    return True
+                if key in (Qt.Key.Key_Return, Qt.Key.Key_Enter) and not alt and 0 <= idx < len(btns):
+                    btns[idx].click()
+                    return True
+                if alt and key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+                    pur_dlg.done(42)
+                    return True
+                if key == Qt.Key.Key_Escape:
+                    pur_dlg.reject()
+                    return True
+            return False
 
         return super().eventFilter(source, event)
 
@@ -1473,17 +2106,20 @@ class PurchaseView(QWidget):
             "quantity": int(qty),
             "unit": self.unit_input.text(),
             "totalAmount": amount_val,
-            "price": unit_price, 
-            "purchaseDate": self.date_input.date().toString("yyyy-MM-dd")
+            "price": unit_price,
+            "purchaseDate": self.date_input.date().toString("yyyy-MM-dd"),
+            "manufacturer": self.manufacturer_input.text().strip()
         })
-        
+
         self.refresh_list_table()
-        
+
         self.quantity_input.clear()
         self.amount_input.clear()
         self.drug_search_input.clear()
         self.unit_input.clear()
+        self.manufacturer_input.clear()
         self.selected_drug_id = None
+        self.drug_search_input.setFocus()
 
     def refresh_list_table(self):
         total_rows = len(self.existing_list) + len(self.purchase_list)
@@ -1500,6 +2136,7 @@ class PurchaseView(QWidget):
             self.table.setItem(i, 4, QTableWidgetItem(item['unit']))
             self.table.setItem(i, 5, QTableWidgetItem(f"{item['totalAmount']:.2f}"))
             self.table.setItem(i, 6, QTableWidgetItem(f"{item['price']:.2f}"))
+            self.table.setItem(i, 7, QTableWidgetItem(item.get('manufacturer', '')))
 
             del_btn = ModernButton("删除", variant="danger")
             del_btn.setFixedSize(60, 40)
@@ -1512,7 +2149,7 @@ class PurchaseView(QWidget):
             layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
             layout.addWidget(del_btn)
 
-            self.table.setCellWidget(i, 7, container)
+            self.table.setCellWidget(i, 8, container)
             self.table.setRowHeight(i, 70)
 
         # 2. 显示已存在 (Existing)
@@ -1522,7 +2159,7 @@ class PurchaseView(QWidget):
             self.table.setItem(row, 0, QTableWidgetItem("已入库"))
             self.table.item(row, 0).setBackground(QColor(SUCCESS_COLOR))
             self.table.item(row, 0).setForeground(QColor("green"))
-            
+
             p_date = item.get('purchaseDate')
             self.table.setItem(row, 1, QTableWidgetItem(str(p_date)))
             self.table.setItem(row, 2, QTableWidgetItem(item.get('drugName', '')))
@@ -1530,10 +2167,11 @@ class PurchaseView(QWidget):
             self.table.setItem(row, 4, QTableWidgetItem(item.get('unit', '')))
             self.table.setItem(row, 5, QTableWidgetItem(str(item.get('totalAmount', 0))))
             self.table.setItem(row, 6, QTableWidgetItem(str(item.get('price', 0))))
-            
-            self.table.removeCellWidget(row, 7) # 清除可能存在的按钮
-            self.table.setItem(row, 7, QTableWidgetItem("-"))
-            self.table.item(row, 7).setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            self.table.setItem(row, 7, QTableWidgetItem(item.get('manufacturer') or ''))
+
+            self.table.removeCellWidget(row, 8)  # 清除可能存在的按钮
+            self.table.setItem(row, 8, QTableWidgetItem("-"))
+            self.table.item(row, 8).setTextAlignment(Qt.AlignmentFlag.AlignCenter)
             self.table.setRowHeight(row, 70)
 
     def remove_item(self, row):
@@ -1554,7 +2192,8 @@ class PurchaseView(QWidget):
                 "unit": item['unit'],
                 "price": item['price'],
                 "totalAmount": item['totalAmount'],
-                "purchaseDate": item['purchaseDate']
+                "purchaseDate": item['purchaseDate'],
+                "manufacturer": item.get('manufacturer', '')
             })
         
         res = api_client.post("/purchases/batch", submit_data)
@@ -1605,6 +2244,7 @@ class StatsView(QWidget):
         # 跟踪已加载的 tab，懒加载避免一次性 4 个 API 调用阻塞 UI
         self._loaded_tabs = set()
         self._current_month = None
+        self._tabs_ready = False
 
         self.tabs = QTabWidget()
         self.tabs.currentChanged.connect(self.on_tab_changed)
@@ -1663,12 +2303,27 @@ class StatsView(QWidget):
         self.inv_check_warning.setVisible(False)
         inv_layout.addWidget(self.inv_check_warning)
 
+        # 采购计划容器
+        self.purchase_plan_container = QWidget()
+        pp_layout = QVBoxLayout(self.purchase_plan_container)
+        pp_layout.setContentsMargins(SPACING_LG_INT, SPACING_LG_INT, SPACING_LG_INT, SPACING_LG_INT)
+        self.pp_info_label = ModernLabel("", color=GRAY_600)
+        self.pp_info_label.setVisible(False)
+        pp_layout.addWidget(self.pp_info_label)
+        self.pp_table = ModernTable()
+        self.pp_table.setColumnCount(6)
+        self.pp_table.setHorizontalHeaderLabels(["药品名称", "规格", "单位", "计划数量", "进货价", "生产厂家"])
+        self.pp_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        pp_layout.addWidget(self.pp_table)
+
         self.tabs.addTab(self.drug_stats_tab, "药品进销存月报")
         self.tabs.addTab(self.op_stats_tab, "运营统计月报")
         self.tabs.addTab(self.monthly_summary_tab, "月度汇总报表")
         self.tabs.addTab(self.yearly_summary_container, "年度汇总报表")
         self.tabs.addTab(self.inv_check_container, "库存盘点报表")
-        
+        self.tabs.addTab(self.purchase_plan_container, "采购计划")
+        self._tabs_ready = True
+
         main_card.add_widget(self.tabs)
         layout.addWidget(main_card)
         
@@ -1730,6 +2385,9 @@ class StatsView(QWidget):
         elif current_tab_idx == 4:
             self._export_inv_check()
             return
+        elif current_tab_idx == 5:
+            self._export_purchase_plan()
+            return
         else:
             return
             
@@ -1749,9 +2407,63 @@ class StatsView(QWidget):
         except Exception as e:
             ModernMessageBox.critical(self, "错误", f"导出出错: {str(e)}")
 
+    def _load_purchase_plan(self):
+        month = self.month_edit.date().toString("yyyy-MM")
+        res = api_client.get("/stats/purchase-plan", params={"month": month})
+        if res.status_code == 200 and res.json()['code'] == 200:
+            data = res.json()['data']
+            status = data.get('status', 'NOT_FOUND')
+            details = data.get('details', [])
+            if status == 'NOT_FOUND':
+                self.pp_info_label.setText(f"{month} 月份暂无采购计划")
+                self.pp_info_label.setVisible(True)
+                self.pp_table.setRowCount(0)
+            elif status == 'PENDING':
+                self.pp_info_label.setText(f"{month} 月份采购计划尚未完成，请先完成后再导出")
+                self.pp_info_label.setVisible(True)
+                self._populate_pp_table(details)
+            else:
+                self.pp_info_label.setText(f"{month} 月份采购计划（已完成）")
+                self.pp_info_label.setVisible(True)
+                self._populate_pp_table(details)
+        else:
+            self.pp_info_label.setText("查询失败")
+            self.pp_info_label.setVisible(True)
+            self.pp_table.setRowCount(0)
+
+    def _populate_pp_table(self, details):
+        self.pp_table.setRowCount(len(details))
+        for r, d in enumerate(details):
+            self.pp_table.setItem(r, 0, QTableWidgetItem(d.get('drugName', '')))
+            self.pp_table.setItem(r, 1, QTableWidgetItem(d.get('spec') or ''))
+            self.pp_table.setItem(r, 2, QTableWidgetItem(d.get('unit') or ''))
+            planned = d.get('plannedQuantity')
+            self.pp_table.setItem(r, 3, QTableWidgetItem(str(planned) if planned else ''))
+            price = d.get('purchasePrice')
+            self.pp_table.setItem(r, 4, QTableWidgetItem(f"{price:.2f}" if price else ''))
+            self.pp_table.setItem(r, 5, QTableWidgetItem(d.get('manufacturer') or ''))
+            self.pp_table.setRowHeight(r, 40)
+
+    def _export_purchase_plan(self):
+        month = self.month_edit.date().toString("yyyy-MM")
+        file_path, _ = QFileDialog.getSaveFileName(self, "保存文件", f"采购计划_{month}.xlsx", "Excel Files (*.xlsx)")
+        if not file_path:
+            return
+        try:
+            res = api_client.get("/stats/purchase-plan/export", params={"month": month})
+            if res.status_code == 200:
+                with open(file_path, 'wb') as f:
+                    f.write(res.content)
+                ModernMessageBox.information(self, "成功", "导出成功")
+            else:
+                msg = res.json().get('message', '导出失败') if res.text else f"导出失败: HTTP {res.status_code}"
+                ModernMessageBox.critical(self, "失败", msg)
+        except Exception as e:
+            ModernMessageBox.critical(self, "错误", f"导出出错: {str(e)}")
+
     def on_tab_changed(self, index):
         """懒加载：切换 tab 时只加载当前 tab 的数据"""
-        if not hasattr(self, '_loaded_tabs') or not hasattr(self, 'month_edit'):
+        if not getattr(self, '_tabs_ready', False):
             return
         if index in self._loaded_tabs and self._current_month == self.month_edit.date().toString("yyyy-MM"):
             return
@@ -1770,6 +2482,8 @@ class StatsView(QWidget):
             self._load_yearly_summary(self.month_edit.date().toString("yyyy"))
         elif index == 4:
             self._load_inv_check()
+        elif index == 5:
+            self._load_purchase_plan()
         self._loaded_tabs.add(index)
 
     def load_stats(self):
