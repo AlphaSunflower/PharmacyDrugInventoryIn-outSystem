@@ -60,6 +60,11 @@ database/
 | `POST /visits/{id}/return` | PHARMACIST | Return to doctor with reason |
 | `GET /drugs` | DOCTOR/PHARMACIST | Drug list with batchList |
 | `GET /stats/inventory-check` | DOCTOR/PHARMACIST | Inventory check report for a month |
+| `POST /purchase-plans/generate` | PHARMACIST | Generate/get monthly purchase plan |
+| `POST /purchase-plans/{id}/complete` | PHARMACIST | Complete purchase plan |
+| `GET /stats/purchase-plan` | DOCTOR/PHARMACIST | Query purchase plan data |
+| `GET /stats/purchase-plan/export` | DOCTOR/PHARMACIST | Export purchase plan to Excel |
+| `PUT /drugs/batch/{id}` | PHARMACIST | Update batch info (manufacturer, etc.) |
 
 ## Config
 
@@ -82,7 +87,8 @@ resources/
 - **Notification system**: MainWindow polls `/visits/notification-counts` every 5s. `BadgedSidebarButton` shows red ●N overlay on sidebar. `ToastNotification` pops up bottom-right on new items, auto-dismisses 4s, click navigates to relevant view.
 - **Cross-view refresh**: `MainWindow.stock_changed` signal emitted after dispense/purchase. DrugManageView and DrugQueryView connect to auto-refresh.
 - **Poling**: DispenseView 8s, VisitHistoryView 8s. Other views refresh on showEvent or manual action.
-- **Role-based menus**: ROOT gets all 8 views, others get role-specific subsets.
+- **Role-based menus**: ROOT gets 9 views (added 采购计划), PHARMACIST gets 7 views. DOCTOR gets 4 views, ADMIN gets 2 views.
+- **Keyboard shortcuts**: Global keyboard navigation with Enter chains, Alt+←→ field switching, ↑↓ popup selection with highlight, ESC to cancel. Tooltip hints on all inputs.
 
 ## Build & Run
 
@@ -119,3 +125,6 @@ mysql -u root -p < database/init.sql
 - StatsController is thin — all calculation logic is in `StatsServiceImpl`. Monthly and yearly summary share `calculateSummaryReport()`.
 - The `@RequireRole` annotation supports both class-level and method-level. ROOT bypasses all checks.
 - Purchase batch numbers are auto-generated as `YYYYMMDD_HH_mm_drugId` (e.g. `20260601_22_30_1`).
+- **Purchase Plan module**: `PurchasePlanController` + `PurchasePlanService` follow the same pattern as InventoryCheck. Generate monthly plans, fill quantities, complete/reopen/delete. Export via `GET /stats/purchase-plan/export`.
+- **Manufacturer field**: `drug_batches.manufacturer` tracks manufacturer per batch. Auto-filled from latest batch on drug selection, editable via dialog with historical vendor list. Covered in drug management, purchase, and purchase plan.
+- **Keyboard navigation**: Enter chains for form field navigation, dropdown popup on focus, ↑↓ selection with highlight, Alt+Enter for custom actions, ESC to cancel. All inputs have tooltip hints. See `components.py` SearchableComboBox and ModernInputDialog.
