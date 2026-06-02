@@ -1035,7 +1035,7 @@ class DrugManageView(QWidget):
     def show_detail_dialog(self, drug):
         dialog = QDialog(self)
         dialog.setWindowTitle("药品详情")
-        dialog.setFixedSize(600, 500)
+        dialog.setFixedSize(1000, 500)
         dialog.setStyleSheet(f"background-color: {WHITE};")
         
         layout = QVBoxLayout(dialog)
