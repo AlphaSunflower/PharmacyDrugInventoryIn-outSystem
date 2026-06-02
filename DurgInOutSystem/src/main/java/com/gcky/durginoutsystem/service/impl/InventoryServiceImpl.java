@@ -165,17 +165,26 @@ public class InventoryServiceImpl implements InventoryService {
 
 
     @Override
-    @Transactional(rollbackFor = Exception.class) // 确保事务一致性
+    @Transactional(rollbackFor = Exception.class)
     public void completeTask(Long taskId) {
-        // 检查是否所有项都已盘点
-        QueryWrapper<InventoryCheckDetail> wrapper = new QueryWrapper<>();
-        wrapper.eq("task_id", taskId);
-        wrapper.isNull("actual_stock");
-        if (detailMapper.selectCount(wrapper) > 0) {
-            throw new BusinessException("还有药品未完成盘点，无法提交任务");
+        // 0. 校验任务存在且未完成
+        InventoryCheckTask existing = taskMapper.selectById(taskId);
+        if (existing == null) {
+            throw new BusinessException("盘点任务不存在");
+        }
+        if ("COMPLETED".equals(existing.getStatus())) {
+            throw new BusinessException("盘点任务已完成，无需重复提交");
         }
 
-        // 1. 更新任务状态
+        // 1. 检查是否所有项都已正确填写实盘数量
+        QueryWrapper<InventoryCheckDetail> wrapper = new QueryWrapper<>();
+        wrapper.eq("task_id", taskId);
+        wrapper.and(w -> w.isNull("actual_stock").or().lt("actual_stock", 0));
+        if (detailMapper.selectCount(wrapper) > 0) {
+            throw new BusinessException("还有药品未正确填写实盘数量，无法提交任务");
+        }
+
+        // 2. 更新任务状态
         InventoryCheckTask task = new InventoryCheckTask();
         task.setId(taskId);
         task.setStatus("COMPLETED");

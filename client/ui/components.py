@@ -1,8 +1,8 @@
 
 from PyQt6.QtWidgets import (QPushButton, QLineEdit, QWidget, QVBoxLayout,
                              QLabel, QGraphicsDropShadowEffect, QFrame, QMessageBox,
-                             QHBoxLayout, QComboBox, QDateEdit, QAbstractSpinBox, QTableWidget, QTableWidgetItem, QHeaderView, QButtonGroup, QApplication, QDialog)
-from PyQt6.QtCore import Qt, QPropertyAnimation, QRect, QEasingCurve, QEvent, pyqtSignal, QDate, QPoint, QTimer
+                             QHBoxLayout, QComboBox, QDateEdit, QAbstractSpinBox, QTableWidget, QTableWidgetItem, QHeaderView, QButtonGroup, QApplication, QDialog, QGridLayout)
+from PyQt6.QtCore import Qt, QPropertyAnimation, QRect, QEasingCurve, QEvent, pyqtSignal, QDate, QPoint, QTimer, QSize
 from PyQt6.QtGui import QColor, QCursor
 
 from ui.style_constants import *
@@ -1569,3 +1569,171 @@ class ModernInputDialog(QDialog):
 
     def get_text(self):
         return self.input.text()
+
+
+class MonthPicker(QWidget):
+    """月份选择器 — 点击弹出 4x3 月份网格，支持年份快速切换"""
+    month_changed = pyqtSignal(str)  # "yyyy-MM"
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._current = QDate.currentDate()
+        self._popup = None
+
+        self._btn = QPushButton()
+        self._btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._btn.clicked.connect(self._toggle_popup)
+        self._update_text()
+        self._style_button()
+
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.addWidget(self._btn)
+
+    def _style_button(self):
+        self._btn.setMinimumHeight(36)
+        self._btn.setStyleSheet(f"""
+            QPushButton {{
+                background: {WHITE};
+                border: 1px solid {GRAY_300};
+                border-radius: {RADIUS_BASE};
+                padding: 6px 14px;
+                font-size: {FONT_SIZE_BASE};
+                font-family: "{FONT_FAMILY}";
+                color: {GRAY_800};
+                text-align: left;
+            }}
+            QPushButton:hover {{
+                border-color: {PRIMARY_COLOR};
+            }}
+        """)
+
+    def _update_text(self):
+        self._btn.setText(f"{self._current.year()}年{self._current.month():02d}月")
+        self._btn.setToolTip(f"当前: {self.current_month()} — 点击切换月份")
+
+    def current_month(self):
+        return self._current.toString("yyyy-MM")
+
+    def set_current_month(self, month_str):
+        """month_str: 'yyyy-MM'"""
+        d = QDate.fromString(month_str + "-01", "yyyy-MM-dd")
+        if d.isValid():
+            self._current = QDate(d.year(), d.month(), 1)
+            self._update_text()
+
+    def _toggle_popup(self):
+        if self._popup and self._popup.isVisible():
+            self._popup.close()
+            return
+        self._show_popup()
+
+    def _show_popup(self):
+        popup = QDialog(self.window(), Qt.WindowType.Popup | Qt.WindowType.FramelessWindowHint)
+        popup.setStyleSheet(f"""
+            QDialog {{
+                background: {WHITE};
+                border: 1px solid {GRAY_200};
+                border-radius: {RADIUS_LG};
+            }}
+        """)
+        self._popup = popup
+
+        layout = QVBoxLayout(popup)
+        layout.setContentsMargins(16, 12, 16, 12)
+        layout.setSpacing(10)
+
+        # Year navigation
+        nav = QHBoxLayout()
+        self._year_label = QLabel(str(self._current.year()))
+        self._year_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._year_label.setStyleSheet(f"font-size: {FONT_SIZE_LG}; font-weight: bold; color: {GRAY_800};")
+
+        prev_btn = self._make_nav_btn("◀")
+        prev_btn.clicked.connect(lambda: self._shift_year(-1))
+        next_btn = self._make_nav_btn("▶")
+        next_btn.clicked.connect(lambda: self._shift_year(1))
+
+        nav.addWidget(prev_btn)
+        nav.addWidget(self._year_label)
+        nav.addWidget(next_btn)
+        layout.addLayout(nav)
+
+        # Month grid
+        grid = QGridLayout()
+        grid.setSpacing(4)
+        months = ["1月", "2月", "3月", "4月", "5月", "6月",
+                   "7月", "8月", "9月", "10月", "11月", "12月"]
+        for i, name in enumerate(months):
+            m = i + 1
+            btn = QPushButton(name)
+            btn.setFixedSize(QSize(64, 36))
+            btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            is_current = (m == self._current.month())
+            btn.setStyleSheet(self._month_btn_style(is_current))
+            btn.clicked.connect(lambda checked, month=m: self._select_month(popup, month))
+            grid.addWidget(btn, i // 4, i % 4)
+        layout.addLayout(grid)
+
+        # Position below the button
+        pos = self._btn.mapToGlobal(QPoint(0, self._btn.height() + 4))
+        popup.move(pos)
+        popup.exec()
+
+    def _make_nav_btn(self, text):
+        btn = QPushButton(text)
+        btn.setFixedSize(32, 32)
+        btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        btn.setStyleSheet(f"""
+            QPushButton {{
+                background: transparent;
+                border: 1px solid {GRAY_200};
+                border-radius: {RADIUS_SM};
+                font-size: {FONT_SIZE_SM};
+                color: {GRAY_600};
+            }}
+            QPushButton:hover {{
+                background: {GRAY_50};
+                border-color: {PRIMARY_COLOR};
+                color: {PRIMARY_COLOR};
+            }}
+        """)
+        return btn
+
+    def _month_btn_style(self, selected):
+        bg = PRIMARY_COLOR if selected else WHITE
+        fg = WHITE if selected else GRAY_700
+        hover_bg = PRIMARY_COLOR if selected else GRAY_50
+        return f"""
+            QPushButton {{
+                background: {bg};
+                border: 1px solid {PRIMARY_COLOR if selected else GRAY_200};
+                border-radius: {RADIUS_BASE};
+                font-size: {FONT_SIZE_BASE};
+                font-family: "{FONT_FAMILY}";
+                color: {fg};
+            }}
+            QPushButton:hover {{
+                background: {hover_bg};
+                border-color: {PRIMARY_COLOR};
+            }}
+        """
+
+    def _shift_year(self, delta):
+        self._current = self._current.addYears(delta)
+        self._year_label.setText(str(self._current.year()))
+        # Refresh grid buttons
+        grid = self._popup.findChild(QGridLayout)
+        if grid:
+            for i in range(grid.count()):
+                w = grid.itemAt(i).widget()
+                if isinstance(w, QPushButton):
+                    m = i + 1
+                    is_current = (m == self._current.month())
+                    w.setStyleSheet(self._month_btn_style(is_current))
+
+    def _select_month(self, popup, month):
+        self._current = QDate(self._current.year(), month, 1)
+        self._update_text()
+        popup.close()
+        self.month_changed.emit(self.current_month())

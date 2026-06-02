@@ -7,7 +7,7 @@ from PyQt6.QtCore import QDate, Qt, QTimer, QEvent
 from PyQt6.QtGui import QColor, QIntValidator
 from utils.api_client import api_client
 from ui.style_constants import *
-from ui.components import ModernButton, ModernInput, ModernLabel, ModernCard, ModernMessageBox, PaginationControl, SmartDateEdit, DepartmentFilterGroup, DrugSelectionDialog, DiagnosisSelectionDialog, ModernTable, ModernInputDialog
+from ui.components import ModernButton, ModernInput, ModernLabel, ModernCard, ModernMessageBox, PaginationControl, SmartDateEdit, DepartmentFilterGroup, DrugSelectionDialog, DiagnosisSelectionDialog, ModernTable, ModernInputDialog, MonthPicker
 
 class DispenseView(QWidget):
     def __init__(self):
@@ -591,7 +591,8 @@ class InventoryView(QWidget):
     def __init__(self):
         super().__init__()
         self.task_id = None
-        self.task_status = None 
+        self.task_status = None
+        self.details = []
         self.is_clearing_placeholder = False
         self.initUI()
 
@@ -605,12 +606,9 @@ class InventoryView(QWidget):
         # 顶部操作栏
         top_layout = QHBoxLayout()
         top_layout.addWidget(ModernLabel("月份:", color=GRAY_800))
-        self.month_edit = QDateEdit()
-        self.month_edit.setDisplayFormat("yyyy-MM")
-        self.month_edit.setDate(QDate.currentDate())
-        self.style_dateedit(self.month_edit)
+        self.month_edit = MonthPicker()
         top_layout.addWidget(self.month_edit)
-        
+
         gen_btn = ModernButton("生成/获取盘点任务", variant="primary")
         gen_btn.clicked.connect(self.generate_task)
         top_layout.addWidget(gen_btn)
@@ -628,7 +626,12 @@ class InventoryView(QWidget):
         self.complete_btn = ModernButton("完成本次盘点", variant="primary")
         self.complete_btn.clicked.connect(self.complete_task)
         top_layout.addWidget(self.complete_btn)
-        
+
+        self._filter_unfilled = False
+        self.filter_btn = ModernButton("筛选未填写", variant="secondary")
+        self.filter_btn.clicked.connect(self.toggle_unfilled_filter)
+        top_layout.addWidget(self.filter_btn)
+
         top_layout.addStretch()
         main_card.add_layout(top_layout)
         
@@ -667,7 +670,7 @@ class InventoryView(QWidget):
         """)
 
     def generate_task(self):
-        month = self.month_edit.date().toString("yyyy-MM")
+        month = self.month_edit.current_month()
         res = api_client.post("/inventory-checks/generate", params={"month": month})
         if res.status_code == 200 and res.json()['code'] == 200:
             self.task_id = res.json()['data']
@@ -748,10 +751,28 @@ class InventoryView(QWidget):
             else:
                 ModernMessageBox.critical(self, "失败", f"操作失败: {res.json().get('message')}")
 
+    def _is_row_unfilled(self, item):
+        val = item.get('actualStock')
+        return val is None or (isinstance(val, str) and val.strip() == '')
+
+    def toggle_unfilled_filter(self):
+        if not self.task_id:
+            ModernMessageBox.warning(self, "提示", "请先生成或获取盘点任务")
+            return
+        self._filter_unfilled = not self._filter_unfilled
+        if self._filter_unfilled:
+            self.filter_btn.setText("显示全部")
+            self.filter_btn.setToolTip("当前仅显示未填写实盘数量的药品")
+        else:
+            self.filter_btn.setText("筛选未填写")
+            self.filter_btn.setToolTip("仅显示未填写实盘数量的药品")
+        self.refresh_table()
+
     def refresh_table(self):
         self.table.blockSignals(True)
-        self.table.setRowCount(len(self.details))
-        for r, item in enumerate(self.details):
+        rows = [d for d in self.details if not self._filter_unfilled or self._is_row_unfilled(d)]
+        self.table.setRowCount(len(rows))
+        for r, item in enumerate(rows):
             detail_id = item.get('id')
             drug_name = item.get('drugName')
             drug_spec = item.get('drugSpec')
@@ -880,12 +901,43 @@ class InventoryView(QWidget):
 
     def complete_task(self):
         if not self.task_id: return
+
+        # 校验所有药品的实盘数量
+        invalid_rows = []
+        for r in range(self.table.rowCount()):
+            drug_name = self.table.item(r, 1).text() if self.table.item(r, 1) else "未知"
+            actual_item = self.table.item(r, 4)
+            if not actual_item:
+                invalid_rows.append(f"  · {drug_name}：未填写")
+                continue
+            val = actual_item.text().strip()
+            if val == "" or val == "点击填写":
+                invalid_rows.append(f"  · {drug_name}：未填写")
+            elif not val.isdigit():
+                invalid_rows.append(f"  · {drug_name}：'{val}' 不是有效数字")
+            elif int(val) < 0:
+                invalid_rows.append(f"  · {drug_name}：数量不能为负数")
+
+        if invalid_rows:
+            msg = "以下药品的实盘数量未正确填写，请修正后再提交：\n\n" + "\n".join(invalid_rows)
+            ModernMessageBox.warning(self, "数据不完整", msg)
+            return
+
+        # 二次确认
+        from PyQt6.QtWidgets import QMessageBox
+        reply = ModernMessageBox.question(self, "确认完成",
+                "确定要完成本次盘点吗？\n提交后数据将不可修改。")
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+
         res = api_client.post(f"/inventory-checks/{self.task_id}/complete")
-        if res.status_code == 200 and res.json()['code'] == 200:
+        resp_data = api_client.safe_json(res) or {}
+        if res.status_code == 200 and resp_data.get('code') == 200:
             ModernMessageBox.information(self, "成功", "盘点任务已完成")
             self.check_task_status()
         else:
-            ModernMessageBox.critical(self, "失败", f"提交失败: {res.json().get('message')}")
+            ModernMessageBox.critical(self, "失败",
+                f"提交失败: {resp_data.get('message', '未知错误')}")
 
 class PurchasePlanView(QWidget):
     def __init__(self):
@@ -907,10 +959,7 @@ class PurchasePlanView(QWidget):
         # 顶部操作栏
         top_layout = QHBoxLayout()
         top_layout.addWidget(ModernLabel("月份:", color=GRAY_800))
-        self.month_edit = QDateEdit()
-        self.month_edit.setDisplayFormat("yyyy-MM")
-        self.month_edit.setDate(QDate.currentDate())
-        self._style_dateedit(self.month_edit)
+        self.month_edit = MonthPicker()
         top_layout.addWidget(self.month_edit)
 
         gen_btn = ModernButton("生成/获取当月采购计划", variant="primary")
@@ -973,7 +1022,7 @@ class PurchasePlanView(QWidget):
         """)
 
     def generate_plan(self):
-        month = self.month_edit.date().toString("yyyy-MM")
+        month = self.month_edit.current_month()
         res = api_client.generate_purchase_plan(month)
         if res.status_code == 200 and res.json()['code'] == 200:
             data = res.json()['data']
@@ -1793,11 +1842,8 @@ class PurchaseView(QWidget):
         top_card = ModernCard()
         top_bar = QHBoxLayout()
         top_bar.addWidget(ModernLabel("选择月份:", color=GRAY_800))
-        self.month_filter = QDateEdit()
-        self.month_filter.setDisplayFormat("yyyy-MM")
-        self.month_filter.setDate(QDate.currentDate())
-        self.style_dateedit(self.month_filter)
-        self.month_filter.dateChanged.connect(self.load_purchases)
+        self.month_filter = MonthPicker()
+        self.month_filter.month_changed.connect(lambda m: self.load_purchases())
         top_bar.addWidget(self.month_filter)
         
         self.search_input = ModernInput(placeholder="搜索药品名称...")
@@ -1850,11 +1896,10 @@ class PurchaseView(QWidget):
         self.manufacturer_input.setToolTip("有数据Enter→日期 | 空Enter→选择 | Alt+Enter→自定义")
         self.manufacturer_input.installEventFilter(self)
 
-        self.date_input = QDateEdit()
+        self.date_input = SmartDateEdit()
         self.date_input.setDate(QDate.currentDate())
-        self.date_input.setToolTip("Enter 添加待提交")
+        self.date_input.setToolTip("Enter 添加待提交 | 点击日历选日期")
         self.date_input.installEventFilter(self)
-        self.style_dateedit(self.date_input)
         
         add_btn = ModernButton("添加待提交", variant="secondary")
         add_btn.clicked.connect(self.add_to_list)
@@ -1926,7 +1971,7 @@ class PurchaseView(QWidget):
         """)
 
     def load_purchases(self):
-        month = self.month_filter.date().toString("yyyy-MM")
+        month = self.month_filter.current_month()
         keyword = self.search_input.text().strip()
         
         params = {"month": month}
@@ -2229,10 +2274,7 @@ class StatsView(QWidget):
         # 顶部过滤
         filter_layout = QHBoxLayout()
         filter_layout.addWidget(ModernLabel("月份:", color=GRAY_800))
-        self.month_edit = QDateEdit()
-        self.month_edit.setDisplayFormat("yyyy-MM")
-        self.month_edit.setDate(QDate.currentDate())
-        self.style_dateedit(self.month_edit)
+        self.month_edit = MonthPicker()
         filter_layout.addWidget(self.month_edit)
         
         query_btn = ModernButton("查询报表", variant="primary")
@@ -2369,8 +2411,8 @@ class StatsView(QWidget):
         """)
 
     def export_stats(self):
-        month = self.month_edit.date().toString("yyyy-MM")
-        year = self.month_edit.date().toString("yyyy")
+        month = self.month_edit.current_month()
+        year = self.month_edit.current_month()[:4]
         current_tab_idx = self.tabs.currentIndex()
         
         params = {"month": month}
@@ -2414,7 +2456,7 @@ class StatsView(QWidget):
             ModernMessageBox.critical(self, "错误", f"导出出错: {str(e)}")
 
     def _load_purchase_plan(self):
-        month = self.month_edit.date().toString("yyyy-MM")
+        month = self.month_edit.current_month()
         res = api_client.get("/stats/purchase-plan", params={"month": month})
         if res.status_code == 200 and res.json()['code'] == 200:
             data = res.json()['data']
@@ -2451,7 +2493,7 @@ class StatsView(QWidget):
             self.pp_table.setRowHeight(r, 40)
 
     def _export_purchase_plan(self):
-        month = self.month_edit.date().toString("yyyy-MM")
+        month = self.month_edit.current_month()
         file_path, _ = QFileDialog.getSaveFileName(self, "保存文件", f"采购计划_{month}.xlsx", "Excel Files (*.xlsx)")
         if not file_path:
             return
@@ -2471,12 +2513,12 @@ class StatsView(QWidget):
         """懒加载：切换 tab 时只加载当前 tab 的数据"""
         if not getattr(self, '_tabs_ready', False):
             return
-        if index in self._loaded_tabs and self._current_month == self.month_edit.date().toString("yyyy-MM"):
+        if index in self._loaded_tabs and self._current_month == self.month_edit.current_month():
             return
         self.load_current_tab(index)
 
     def load_current_tab(self, index):
-        month = self.month_edit.date().toString("yyyy-MM")
+        month = self.month_edit.current_month()
         self._current_month = month
         if index == 0:
             self._load_drug_stats(month)
@@ -2485,7 +2527,7 @@ class StatsView(QWidget):
         elif index == 2:
             self._load_monthly_summary(month)
         elif index == 3:
-            self._load_yearly_summary(self.month_edit.date().toString("yyyy"))
+            self._load_yearly_summary(self.month_edit.current_month()[:4])
         elif index == 4:
             self._load_inv_check()
         elif index == 5:
@@ -2746,7 +2788,7 @@ class StatsView(QWidget):
                 self.yearly_summary_tab.setRowHeight(r, 50)
 
     def _load_inv_check(self):
-        month = self.month_edit.date().toString("yyyy-MM")
+        month = self.month_edit.current_month()
         res = api_client.get("/stats/inventory-check", params={"month": month})
         if res.status_code == 200 and res.json()['code'] == 200:
             data = res.json()['data']
@@ -2782,7 +2824,7 @@ class StatsView(QWidget):
             self.inv_check_table.setRowHeight(r, 50)
 
     def _export_inv_check(self):
-        month = self.month_edit.date().toString("yyyy-MM")
+        month = self.month_edit.current_month()
         # 先检查状态
         res = api_client.get("/stats/inventory-check", params={"month": month})
         if res.status_code == 200 and res.json()['code'] == 200:
