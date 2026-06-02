@@ -24,6 +24,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
@@ -64,49 +65,63 @@ public class VisitServiceImpl implements VisitService {
     }
 
     private void saveVisitDrugs(Long visitId, List<VisitSubmitDTO.VisitDrugDTO> drugs) {
+        // Batch-load all drugs upfront (eliminate N+1)
+        List<Long> drugIds = drugs.stream().map(VisitSubmitDTO.VisitDrugDTO::getDrugId).distinct().collect(Collectors.toList());
+        Map<Long, Drug> drugMap = drugMapper.selectBatchIds(drugIds).stream()
+                .collect(Collectors.toMap(Drug::getId, d -> d));
+
+        // Batch-load all batches for all drugs in one query
+        QueryWrapper<DrugBatch> batchQuery = new QueryWrapper<>();
+        batchQuery.in("drug_id", drugIds).gt("stock_quantity", 0).orderByAsc("created_at");
+        Map<Long, List<DrugBatch>> batchMap = drugBatchMapper.selectList(batchQuery).stream()
+                .collect(Collectors.groupingBy(DrugBatch::getDrugId));
+
+        List<VisitDrug> toInsert = new ArrayList<>();
+
         for (VisitSubmitDTO.VisitDrugDTO drugDTO : drugs) {
-            Drug drug = drugMapper.selectById(drugDTO.getDrugId());
+            Drug drug = drugMap.get(drugDTO.getDrugId());
             if (drug == null) {
                 throw new BusinessException("药品不存在 ID: " + drugDTO.getDrugId());
             }
 
             int remaining = drugDTO.getQuantity();
-            if (remaining <= 0) continue;
+            if (remaining <= 0) {
+                continue;
+            }
 
-            // 获取有效批次 (FIFO)
-            QueryWrapper<DrugBatch> query = new QueryWrapper<>();
-            query.eq("drug_id", drugDTO.getDrugId())
-                 .gt("stock_quantity", 0)
-                 .orderByAsc("created_at");
-            List<DrugBatch> batches = drugBatchMapper.selectList(query);
+            List<DrugBatch> batches = batchMap.getOrDefault(drugDTO.getDrugId(), Collections.emptyList());
 
-            // 按照批次拆分记录
             for (DrugBatch batch : batches) {
-                if (remaining <= 0) break;
-                
+                if (remaining <= 0) {
+                    break;
+                }
+
                 int take = Math.min(remaining, batch.getStockQuantity());
-                
+
                 VisitDrug visitDrug = new VisitDrug();
                 visitDrug.setVisitId(visitId);
                 visitDrug.setDrugId(drugDTO.getDrugId());
                 visitDrug.setQuantity(take);
-                visitDrug.setPrice(batch.getPrice()); // 使用该批次的单价
+                visitDrug.setPrice(batch.getPrice());
                 visitDrug.setAmount(batch.getPrice().multiply(new BigDecimal(take)));
-                visitDrugMapper.insert(visitDrug);
-                
+                toInsert.add(visitDrug);
+
                 remaining -= take;
             }
 
-            // 如果库存不足，剩余部分按参考价记录 (或者按最新批次价)
             if (remaining > 0) {
                 VisitDrug visitDrug = new VisitDrug();
                 visitDrug.setVisitId(visitId);
                 visitDrug.setDrugId(drugDTO.getDrugId());
                 visitDrug.setQuantity(remaining);
-                visitDrug.setPrice(drug.getPrice()); 
+                visitDrug.setPrice(drug.getPrice());
                 visitDrug.setAmount(drug.getPrice().multiply(new BigDecimal(remaining)));
-                visitDrugMapper.insert(visitDrug);
+                toInsert.add(visitDrug);
             }
+        }
+
+        for (VisitDrug vd : toInsert) {
+            visitDrugMapper.insert(vd);
         }
     }
 
@@ -285,14 +300,18 @@ public class VisitServiceImpl implements VisitService {
 
         for (VisitDrug vd : visitDrugs) {
             Drug drug = drugMap.get(vd.getDrugId());
-            if (drug == null) throw new BusinessException("药品不存在");
+            if (drug == null) {
+                throw new BusinessException("药品不存在");
+            }
 
             // FIFO 动态扣减逻辑（加行锁防并发——每药品单独加锁，不合并）
             int needed = vd.getQuantity();
             List<DrugBatch> batches = drugBatchMapper.selectBatchesForUpdate(drug.getId());
             
             for (DrugBatch batch : batches) {
-                if (needed <= 0) break;
+                if (needed <= 0) {
+                    break;
+                }
                 
                 int take = Math.min(needed, batch.getStockQuantity());
                 

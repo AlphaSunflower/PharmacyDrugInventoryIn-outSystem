@@ -284,13 +284,19 @@ public class StatsServiceImpl implements StatsService {
         InventoryCheckTask prevTask = inventoryTaskMapper.selectOne(
                 new QueryWrapper<InventoryCheckTask>().eq("month", prevPeriod).eq("status", "COMPLETED"));
         if (prevTask != null) {
-            for (InventoryCheckDetail d : inventoryDetailMapper.selectList(
-                    new QueryWrapper<InventoryCheckDetail>().eq("task_id", prevTask.getId()))) {
+            List<InventoryCheckDetail> prevDetails = inventoryDetailMapper.selectList(
+                    new QueryWrapper<InventoryCheckDetail>().eq("task_id", prevTask.getId()));
+            // Batch-load drugs for price fallback (eliminate N+1)
+            Set<Long> prevDrugIds = prevDetails.stream().map(InventoryCheckDetail::getDrugId).collect(Collectors.toSet());
+            Map<Long, Drug> prevDrugMap = prevDrugIds.isEmpty() ? Collections.emptyMap() :
+                    drugMapper.selectBatchIds(new ArrayList<>(prevDrugIds)).stream()
+                            .collect(Collectors.toMap(Drug::getId, d -> d));
+            for (InventoryCheckDetail d : prevDetails) {
                 if (!validDrugIds.contains(d.getDrugId())) continue;
                 if (d.getActualAmount() != null) {
                     initialStockAmount = initialStockAmount.add(d.getActualAmount());
                 } else if (d.getActualStock() != null) {
-                    Drug drug = drugMapper.selectById(d.getDrugId());
+                    Drug drug = prevDrugMap.get(d.getDrugId());
                     if (drug != null) initialStockAmount = initialStockAmount.add(
                             drug.getPrice().multiply(new BigDecimal(d.getActualStock())));
                 }
@@ -366,14 +372,21 @@ public class StatsServiceImpl implements StatsService {
     }
 
     private BigDecimal sumActualAmount(Long taskId, Set<Long> validDrugIds) {
+        List<InventoryCheckDetail> details = inventoryDetailMapper.selectList(
+                new QueryWrapper<InventoryCheckDetail>().eq("task_id", taskId));
+        // Batch-load drugs for price fallback (eliminate N+1)
+        Set<Long> detailDrugIds = details.stream().map(InventoryCheckDetail::getDrugId).collect(Collectors.toSet());
+        Map<Long, Drug> drugMap = detailDrugIds.isEmpty() ? Collections.emptyMap() :
+                drugMapper.selectBatchIds(new ArrayList<>(detailDrugIds)).stream()
+                        .collect(Collectors.toMap(Drug::getId, d -> d));
+
         BigDecimal total = BigDecimal.ZERO;
-        for (InventoryCheckDetail d : inventoryDetailMapper.selectList(
-                new QueryWrapper<InventoryCheckDetail>().eq("task_id", taskId))) {
+        for (InventoryCheckDetail d : details) {
             if (!validDrugIds.contains(d.getDrugId())) continue;
             if (d.getActualAmount() != null) {
                 total = total.add(d.getActualAmount());
             } else if (d.getActualStock() != null) {
-                Drug drug = drugMapper.selectById(d.getDrugId());
+                Drug drug = drugMap.get(d.getDrugId());
                 if (drug != null) total = total.add(drug.getPrice().multiply(new BigDecimal(d.getActualStock())));
             }
         }

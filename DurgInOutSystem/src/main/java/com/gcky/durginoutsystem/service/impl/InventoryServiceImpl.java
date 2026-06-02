@@ -196,19 +196,21 @@ public class InventoryServiceImpl implements InventoryService {
         detailWrapper.eq("task_id", taskId);
         List<InventoryCheckDetail> details = detailMapper.selectList(detailWrapper);
 
+        // Batch-load all referenced drugs (eliminate N+1)
+        List<Long> drugIds = details.stream().map(InventoryCheckDetail::getDrugId).distinct().collect(Collectors.toList());
+        Map<Long, Drug> drugMap = drugIds.isEmpty() ? Collections.emptyMap() :
+                drugMapper.selectBatchIds(drugIds).stream().collect(Collectors.toMap(Drug::getId, d -> d));
+
         for (InventoryCheckDetail detail : details) {
             if (detail.getActualStock() != null) {
-                Drug drug = drugMapper.selectById(detail.getDrugId());
+                Drug drug = drugMap.get(detail.getDrugId());
                 if (drug != null) {
                     int diff = detail.getActualStock() - drug.getStockQuantity();
-                    
-                    // 调整批次库存 (后台自动平账)
+
                     if (diff != 0) {
                         adjustBatches(drug.getId(), diff);
                     }
-                    
-                    // 更新总库存 (基于批次重新计算，确保一致)
-                    // drug.setStockQuantity(detail.getActualStock()); // 旧逻辑：直接使用盘点值
+
                     drugStockService.updateDrugTotalStock(drug.getId());
                 }
             }
