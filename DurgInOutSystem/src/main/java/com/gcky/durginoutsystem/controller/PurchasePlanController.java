@@ -1,31 +1,35 @@
 package com.gcky.durginoutsystem.controller;
 
+import com.gcky.durginoutsystem.annotation.RequireRole;
 import com.gcky.durginoutsystem.common.Result;
 import com.gcky.durginoutsystem.entity.DrugBatch;
 import com.gcky.durginoutsystem.entity.PurchasePlan;
+import com.gcky.durginoutsystem.mapper.DrugBatchMapper;
 import com.gcky.durginoutsystem.mapper.PurchasePlanMapper;
 import com.gcky.durginoutsystem.service.PurchasePlanService;
-import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-
-import com.gcky.durginoutsystem.annotation.RequireRole;
+import java.util.stream.Collectors;
 
 @RequireRole({"DOCTOR", "PHARMACIST"})
 @RestController
 @RequestMapping("/api/v1/purchase-plans")
 public class PurchasePlanController {
 
-    @Autowired
-    private PurchasePlanService purchasePlanService;
-    @Autowired
-    private PurchasePlanMapper planMapper;
-    @Autowired
-    private com.gcky.durginoutsystem.mapper.DrugBatchMapper drugBatchMapper;
+    private final PurchasePlanService purchasePlanService;
+    private final PurchasePlanMapper planMapper;
+    private final DrugBatchMapper drugBatchMapper;
+
+    public PurchasePlanController(PurchasePlanService purchasePlanService,
+                                  PurchasePlanMapper planMapper,
+                                  DrugBatchMapper drugBatchMapper) {
+        this.purchasePlanService = purchasePlanService;
+        this.planMapper = planMapper;
+        this.drugBatchMapper = drugBatchMapper;
+    }
 
     // 生成或获取采购计划
     @PostMapping("/generate")
@@ -85,7 +89,7 @@ public class PurchasePlanController {
                 .map(DrugBatch::getManufacturer)
                 .filter(m -> m != null && !m.trim().isEmpty())
                 .distinct()
-                .collect(java.util.stream.Collectors.toList());
+                .collect(Collectors.toList());
         return Result.success(manufacturers);
     }
 }

@@ -219,6 +219,13 @@ class SearchableComboBox(QWidget):
         self.selected_item = None
         self.setup_ui()
         self.installEventFilter(self)
+        self.destroyed.connect(self._on_destroyed)
+
+    def _on_destroyed(self):
+        try:
+            QApplication.instance().removeEventFilter(self)
+        except Exception:
+            pass
 
     def setup_ui(self):
         layout = QVBoxLayout(self)

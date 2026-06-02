@@ -35,4 +35,16 @@ public class WorkloadSummaryExcel {
     @ExcelProperty("期末库存金额")
     @ColumnWidth(15)
     private BigDecimal finalStockAmount;
+
+    @ExcelProperty("缺失盘点月份")
+    @ColumnWidth(25)
+    private String missingInventoryMonths;
+
+    @ExcelProperty("上期库存是否缺失")
+    @ColumnWidth(18)
+    private String isLastYearStockMissing;
+
+    @ExcelProperty("年末库存是否缺失")
+    @ColumnWidth(18)
+    private String isYearEndStockMissing;
 }

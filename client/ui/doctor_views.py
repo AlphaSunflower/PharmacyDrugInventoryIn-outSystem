@@ -3,6 +3,7 @@ from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QLabel, QFormLayout,
                              QTableWidget, QTableWidgetItem, QHBoxLayout, QMessageBox, 
                              QDialog, QInputDialog, QHeaderView, QFrame, QAbstractItemView, QAbstractSpinBox)
 from PyQt6.QtCore import QDate, Qt, QTimer, QEvent
+from PyQt6.QtGui import QIntValidator
 from PyQt6.QtGui import QColor
 from utils.api_client import api_client
 from ui.style_constants import *
@@ -53,7 +54,7 @@ class VisitCreateView(QWidget):
 
         self.age_input = ModernInput(placeholder="年龄")
         self.age_input.setFixedWidth(60)
-        self.age_input.setValidator(None)
+        self.age_input.setValidator(QIntValidator(0, 150, self))
         self.age_input.setToolTip("Enter 下一项 | Alt+← 上一项 | Alt+→ 下一项")
 
         self.department_input = QComboBox()
@@ -319,7 +320,8 @@ class VisitCreateView(QWidget):
         if res.status_code == 200:
             data = res.json()
             if data['code'] == 200:
-                self.diagnosis_types = data['data']
+                page_data = data['data']
+                self.diagnosis_types = page_data.get('records', page_data) if isinstance(page_data, dict) else page_data
                 # 始终添加 "自定义诊断" 到首位
                 custom_diag = {"id": "CUSTOM", "name": "--- 自定义诊断 ---"}
                 # 避免重复添加
@@ -697,6 +699,11 @@ class VisitHistoryView(QWidget):
         self.load_data()
         super().showEvent(event)
 
+    def closeEvent(self, event):
+        if hasattr(self, '_refresh_timer') and self._refresh_timer:
+            self._refresh_timer.stop()
+        super().closeEvent(event)
+
     def _auto_refresh(self):
         if self.isVisible():
             self.load_data()
@@ -914,25 +921,29 @@ class VisitHistoryView(QWidget):
         if res.status_code == 200:
             data = res.json()
             if data['code'] == 200:
-                self.diagnosis_types = data['data']
+                page_data = data['data']
+                self.diagnosis_types = page_data.get('records', page_data) if isinstance(page_data, dict) else page_data
 
     def on_search(self):
         self.pagination.current_page = 1
         self.load_data()
 
     def eventFilter(self, source, event):
+        # Keyboard shortcuts: Alt+Enter / Alt+Escape
         if event.type() == QEvent.Type.KeyPress:
             key = event.key()
             mods = event.modifiers()
             alt = bool(mods & Qt.KeyboardModifier.AltModifier)
-            # Alt+Enter: query
             if alt and key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
                 self.on_search()
                 return True
-            # Alt+ESC: clear filters
             if alt and key == Qt.Key.Key_Escape:
                 self.reset_search()
                 return True
+        # Mouse click on diagnosis search input opens dialog
+        if source == getattr(self, 'diag_search_input', None) and event.type() == QEvent.Type.MouseButtonPress:
+            self.open_diagnosis_dialog()
+            return True
         return super().eventFilter(source, event)
 
     def load_data(self):
@@ -1049,12 +1060,6 @@ class VisitHistoryView(QWidget):
             self.table.setCellWidget(r, 6, btn_container)
             
             self.table.setRowHeight(r, 70)
-
-    def eventFilter(self, source, event):
-        if source == getattr(self, 'diag_search_input', None) and event.type() == QEvent.Type.MouseButtonPress:
-            self.open_diagnosis_dialog()
-            return True
-        return super().eventFilter(source, event)
 
     def open_diagnosis_dialog(self):
         if not hasattr(self, 'diagnosis_types') or not self.diagnosis_types:

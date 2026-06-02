@@ -59,7 +59,7 @@ class LogDetailsDialog(QDialog):
                 parsed_json = json.loads(operate_data)
                 formatted_json = json.dumps(parsed_json, indent=4, ensure_ascii=False)
                 data_text.setText(formatted_json)
-            except:
+            except (json.JSONDecodeError, TypeError):
                 data_text.setText(str(operate_data))
         else:
             data_text.setText("无数据")
@@ -171,6 +171,10 @@ class UserManageView(QWidget):
             if data['code'] == 200:
                 self.users = data['data']['records']
                 self.refresh_table()
+            else:
+                self.table.setRowCount(0)
+        else:
+            self.table.setRowCount(0)
 
     def refresh_table(self):
         self.table.setRowCount(len(self.users))
@@ -303,13 +307,14 @@ class UserManageView(QWidget):
                 res = api_client.put(f"/users/{user['id']}", data)
             else:
                 res = api_client.post("/users", data)
-                
-            if res.status_code == 200 and res.json()['code'] == 200:
+
+            resp_data = api_client.safe_json(res) or {}
+            if res.status_code == 200 and resp_data.get('code') == 200:
                 ModernMessageBox.information(dialog, "成功", "保存成功")
                 dialog.accept()
                 self.load_data()
             else:
-                ModernMessageBox.critical(dialog, "失败", f"保存失败: {res.json().get('message')}")
+                ModernMessageBox.critical(dialog, "失败", f"保存失败: {resp_data.get('message', '未知错误')}")
                 
         save_btn.clicked.connect(save)
         dialog.exec()
@@ -317,11 +322,12 @@ class UserManageView(QWidget):
     def toggle_status(self, user):
         new_status = 0 if user['status'] == 1 else 1
         res = api_client.patch(f"/users/{user['id']}/status", params={"status": new_status})
-        if res.status_code == 200 and res.json()['code'] == 200:
+        resp_data = api_client.safe_json(res) or {}
+        if res.status_code == 200 and resp_data.get('code') == 200:
             ModernMessageBox.information(self, "成功", "状态已更新")
             self.load_data()
         else:
-            ModernMessageBox.critical(self, "失败", f"更新失败: {res.json().get('message')}")
+            ModernMessageBox.critical(self, "失败", f"更新失败: {resp_data.get('message', '未知错误')}")
 
 class LogView(QWidget):
     def __init__(self):

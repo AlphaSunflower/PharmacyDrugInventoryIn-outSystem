@@ -37,16 +37,12 @@ public class GlobalExceptionHandler {
                 .body(Result.error(400, e.getMessage()));
     }
 
-    /** 其他运行时异常 — 返回 HTTP 500 */
+    /** 其他运行时异常 — 返回 HTTP 400，不暴露内部错误详情 */
     @ExceptionHandler(RuntimeException.class)
     public ResponseEntity<Result<String>> handleRuntimeException(RuntimeException e) {
-        log.warn("业务异常: {}", e.getMessage());
-        String message = e.getMessage();
-        if (message == null || message.isEmpty()) {
-            message = "业务执行出错";
-        }
+        log.error("运行时异常", e);
         return ResponseEntity.status(HttpStatus.BAD_REQUEST)
-                .body(Result.error(400, message));
+                .body(Result.error(400, "业务执行出错"));
     }
 
     /** 未知系统异常 — 返回 HTTP 500，不泄露内部错误详情 */

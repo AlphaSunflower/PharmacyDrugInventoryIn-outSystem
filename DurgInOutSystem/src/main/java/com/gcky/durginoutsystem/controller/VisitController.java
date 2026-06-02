@@ -9,7 +9,6 @@ import com.gcky.durginoutsystem.service.VisitService;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.extern.slf4j.Slf4j;
 import jakarta.validation.Valid;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.HashMap;
@@ -20,8 +19,11 @@ import java.util.Map;
 @RequestMapping("/api/v1/visits")
 public class VisitController {
 
-    @Autowired
-    private VisitService visitService;
+    private final VisitService visitService;
+
+    public VisitController(VisitService visitService) {
+        this.visitService = visitService;
+    }
 
     @Log("提交就诊记录")
     @RequireRole("DOCTOR")

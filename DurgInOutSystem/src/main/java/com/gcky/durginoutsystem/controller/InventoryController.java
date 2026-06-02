@@ -3,7 +3,6 @@ package com.gcky.durginoutsystem.controller;
 import com.gcky.durginoutsystem.common.Result;
 import com.gcky.durginoutsystem.entity.InventoryCheckTask;
 import com.gcky.durginoutsystem.service.InventoryService;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -16,8 +15,11 @@ import com.gcky.durginoutsystem.annotation.RequireRole;
 @RequestMapping("/api/v1/inventory-checks")
 public class InventoryController {
 
-    @Autowired
-    private InventoryService inventoryService;
+    private final InventoryService inventoryService;
+
+    public InventoryController(InventoryService inventoryService) {
+        this.inventoryService = inventoryService;
+    }
 
     // 生成或获取盘点任务
     @PostMapping("/generate")

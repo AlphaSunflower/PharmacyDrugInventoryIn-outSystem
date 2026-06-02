@@ -230,9 +230,13 @@ class MainWindow(QMainWindow):
         for i, btn in enumerate(self.menu_buttons):
             btn.setChecked(i == index)
 
+    def closeEvent(self, event):
+        if hasattr(self, '_notify_timer') and self._notify_timer:
+            self._notify_timer.stop()
+        super().closeEvent(event)
+
     def resizeEvent(self, event):
         super().resizeEvent(event)
-        # 重绘时需要调整已显示 toast 的位置（简单处理：不追踪已存在的 toast）
 
     def logout(self):
         try:
@@ -244,4 +248,5 @@ class MainWindow(QMainWindow):
         if self._notify_timer:
             self._notify_timer.stop()
         api_client.logout(machine_id)
+        api_client.close()
         self.close()

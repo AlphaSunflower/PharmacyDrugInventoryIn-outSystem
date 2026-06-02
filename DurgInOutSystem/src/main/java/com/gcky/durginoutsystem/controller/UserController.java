@@ -4,9 +4,12 @@ import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.gcky.durginoutsystem.common.Result;
 import com.gcky.durginoutsystem.entity.User;
+import com.baomidou.mybatisplus.core.conditions.update.UpdateWrapper;
 import com.gcky.durginoutsystem.mapper.UserMapper;
-import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
+import jakarta.validation.Valid;
 
 import java.time.LocalDateTime;
 
@@ -18,8 +21,11 @@ import com.gcky.durginoutsystem.annotation.RequireRole;
 @RequestMapping("/api/v1/users")
 public class UserController {
 
-    @Autowired
-    private UserMapper userMapper;
+    private final UserMapper userMapper;
+
+    public UserController(UserMapper userMapper) {
+        this.userMapper = userMapper;
+    }
 
     // 获取用户列表 (Admin only)
     @GetMapping
@@ -38,6 +44,7 @@ public class UserController {
     // 新增用户
     @Log("新增系统用户")
     @PostMapping
+    @Transactional(rollbackFor = Exception.class)
     public Result<String> addUser(@RequestBody User user) {
         // 检查用户名是否已存在
         QueryWrapper<User> queryWrapper = new QueryWrapper<>();
@@ -56,9 +63,9 @@ public class UserController {
     // 修改用户
     @Log("修改系统用户")
     @PutMapping("/{id}")
+    @Transactional(rollbackFor = Exception.class)
     public Result<String> updateUser(@PathVariable Long id, @RequestBody User user) {
-        com.baomidou.mybatisplus.core.conditions.update.UpdateWrapper<User> updateWrapper =
-                new com.baomidou.mybatisplus.core.conditions.update.UpdateWrapper<>();
+        UpdateWrapper<User> updateWrapper = new UpdateWrapper<>();
         updateWrapper.eq("id", id);
         if (user.getRealName() != null) {
             updateWrapper.set("real_name", user.getRealName());

@@ -20,6 +20,10 @@ public class JwtUtil {
     private static final long EXPIRATION_TIME = 86400000; // 24 hours
 
     public JwtUtil(@Value("${jwt.secret}") String secret) {
+        if (secret == null || secret.isBlank()) {
+            throw new IllegalStateException(
+                "JWT secret is not configured. Set JWT_SECRET environment variable or jwt.secret in profile config.");
+        }
         this.key = Keys.hmacShaKeyFor(secret.getBytes());
     }
 

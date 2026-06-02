@@ -4,14 +4,17 @@ import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.gcky.durginoutsystem.entity.DiagnosisType;
 import com.gcky.durginoutsystem.entity.Drug;
+import com.gcky.durginoutsystem.entity.DrugBatch;
 import com.gcky.durginoutsystem.entity.PatientVisit;
 import com.gcky.durginoutsystem.entity.VisitDrug;
 import com.gcky.durginoutsystem.entity.dto.VisitSubmitDTO;
 import com.gcky.durginoutsystem.exception.BusinessException;
 import com.gcky.durginoutsystem.mapper.DiagnosisTypeMapper;
+import com.gcky.durginoutsystem.mapper.DrugBatchMapper;
 import com.gcky.durginoutsystem.mapper.DrugMapper;
 import com.gcky.durginoutsystem.mapper.PatientVisitMapper;
 import com.gcky.durginoutsystem.mapper.VisitDrugMapper;
+import com.gcky.durginoutsystem.service.DrugStockService;
 import com.gcky.durginoutsystem.service.VisitService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.BeanUtils;
@@ -40,9 +43,9 @@ public class VisitServiceImpl implements VisitService {
     @Autowired
     private DiagnosisTypeMapper diagnosisTypeMapper;
     @Autowired
-    private com.gcky.durginoutsystem.mapper.DrugBatchMapper drugBatchMapper;
+    private DrugBatchMapper drugBatchMapper;
     @Autowired
-    private com.gcky.durginoutsystem.service.DrugStockService drugStockService;
+    private DrugStockService drugStockService;
 
     @Override
     @Transactional(rollbackFor = Exception.class)
@@ -71,14 +74,14 @@ public class VisitServiceImpl implements VisitService {
             if (remaining <= 0) continue;
 
             // 获取有效批次 (FIFO)
-            QueryWrapper<com.gcky.durginoutsystem.entity.DrugBatch> query = new QueryWrapper<>();
+            QueryWrapper<DrugBatch> query = new QueryWrapper<>();
             query.eq("drug_id", drugDTO.getDrugId())
                  .gt("stock_quantity", 0)
                  .orderByAsc("created_at");
-            List<com.gcky.durginoutsystem.entity.DrugBatch> batches = drugBatchMapper.selectList(query);
+            List<DrugBatch> batches = drugBatchMapper.selectList(query);
 
             // 按照批次拆分记录
-            for (com.gcky.durginoutsystem.entity.DrugBatch batch : batches) {
+            for (DrugBatch batch : batches) {
                 if (remaining <= 0) break;
                 
                 int take = Math.min(remaining, batch.getStockQuantity());
@@ -286,9 +289,9 @@ public class VisitServiceImpl implements VisitService {
 
             // FIFO 动态扣减逻辑（加行锁防并发——每药品单独加锁，不合并）
             int needed = vd.getQuantity();
-            List<com.gcky.durginoutsystem.entity.DrugBatch> batches = drugBatchMapper.selectBatchesForUpdate(drug.getId());
+            List<DrugBatch> batches = drugBatchMapper.selectBatchesForUpdate(drug.getId());
             
-            for (com.gcky.durginoutsystem.entity.DrugBatch batch : batches) {
+            for (DrugBatch batch : batches) {
                 if (needed <= 0) break;
                 
                 int take = Math.min(needed, batch.getStockQuantity());
@@ -345,12 +348,12 @@ public class VisitServiceImpl implements VisitService {
 
     private void restoreToLatestBatch(Long drugId, Integer quantity, BigDecimal price) {
         // 原子性增加最新批次库存（DB 侧运算，消除竞态）
-        com.gcky.durginoutsystem.entity.DrugBatch latest = drugBatchMapper.selectLatestForUpdate(drugId);
+        DrugBatch latest = drugBatchMapper.selectLatestForUpdate(drugId);
 
         if (latest != null) {
             drugBatchMapper.incrementStock(latest.getId(), quantity);
         } else {
-            com.gcky.durginoutsystem.entity.DrugBatch batch = new com.gcky.durginoutsystem.entity.DrugBatch();
+            DrugBatch batch = new DrugBatch();
             batch.setDrugId(drugId);
             batch.setBatchNo("RETURN_RESTORE");
             batch.setPrice(price != null ? price : BigDecimal.ZERO);

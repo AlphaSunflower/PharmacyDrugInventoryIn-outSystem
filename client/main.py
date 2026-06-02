@@ -12,7 +12,7 @@ def get_machine_id():
         # 使用 MAC 地址作为机器码的基础
         node = uuid.getnode()
         return str(node)
-    except:
+    except Exception:
         return None
 
 class LoginWindow(QWidget):

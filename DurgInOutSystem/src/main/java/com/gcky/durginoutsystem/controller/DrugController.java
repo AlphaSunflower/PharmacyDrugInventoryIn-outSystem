@@ -2,33 +2,50 @@ package com.gcky.durginoutsystem.controller;
 
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.gcky.durginoutsystem.annotation.Log;
+import com.gcky.durginoutsystem.annotation.RequireRole;
 import com.gcky.durginoutsystem.common.Result;
 import com.gcky.durginoutsystem.entity.Drug;
+import com.gcky.durginoutsystem.entity.DrugBatch;
+import com.gcky.durginoutsystem.entity.VisitDrug;
+import com.gcky.durginoutsystem.mapper.DrugBatchMapper;
 import com.gcky.durginoutsystem.mapper.DrugMapper;
-import org.springframework.beans.factory.annotation.Autowired;
+import com.gcky.durginoutsystem.mapper.VisitDrugMapper;
+import com.gcky.durginoutsystem.service.DrugBatchService;
+import com.gcky.durginoutsystem.service.DrugStockService;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
 
+import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
 
-import com.gcky.durginoutsystem.annotation.Log;
-import com.gcky.durginoutsystem.annotation.RequireRole;
-
 @RequireRole({"DOCTOR", "PHARMACIST"})
 @RestController
 @RequestMapping("/api/v1/drugs")
 public class DrugController {
 
-    @Autowired
-    private DrugMapper drugMapper;
+    private final DrugMapper drugMapper;
+    private final DrugBatchService drugBatchService;
+    private final DrugBatchMapper drugBatchMapper;
+    private final DrugStockService drugStockService;
+    private final VisitDrugMapper visitDrugMapper;
 
-    @Autowired
-    private com.gcky.durginoutsystem.service.DrugBatchService drugBatchService;
-    @Autowired
-    private com.gcky.durginoutsystem.mapper.DrugBatchMapper drugBatchMapper;
+    public DrugController(DrugMapper drugMapper,
+                          DrugBatchService drugBatchService,
+                          DrugBatchMapper drugBatchMapper,
+                          DrugStockService drugStockService,
+                          VisitDrugMapper visitDrugMapper) {
+        this.drugMapper = drugMapper;
+        this.drugBatchService = drugBatchService;
+        this.drugBatchMapper = drugBatchMapper;
+        this.drugStockService = drugStockService;
+        this.visitDrugMapper = visitDrugMapper;
+    }
 
     @Log("执行数据迁移")
     @PostMapping("/migrate-batches")
@@ -62,13 +79,13 @@ public class DrugController {
         // 批量填充批次信息（消除 N+1）
         if (!result.getRecords().isEmpty()) {
             List<Long> drugIds = result.getRecords().stream().map(Drug::getId).collect(Collectors.toList());
-            QueryWrapper<com.gcky.durginoutsystem.entity.DrugBatch> batchQuery = new QueryWrapper<>();
+            QueryWrapper<DrugBatch> batchQuery = new QueryWrapper<>();
             batchQuery.in("drug_id", drugIds)
                       .ge("stock_quantity", 0)
                       .orderByAsc("created_at");
-            Map<Long, List<com.gcky.durginoutsystem.entity.DrugBatch>> batchMap =
+            Map<Long, List<DrugBatch>> batchMap =
                     drugBatchMapper.selectList(batchQuery).stream()
-                            .collect(Collectors.groupingBy(com.gcky.durginoutsystem.entity.DrugBatch::getDrugId));
+                            .collect(Collectors.groupingBy(DrugBatch::getDrugId));
             result.getRecords().forEach(drug ->
                     drug.setBatchList(batchMap.getOrDefault(drug.getId(), Collections.emptyList())));
         }
@@ -79,6 +96,7 @@ public class DrugController {
     // 新增药品
     @Log("新增药品")
     @PostMapping
+    @Transactional(rollbackFor = Exception.class)
     public Result<String> addDrug(@RequestBody Drug drug) {
         drug.setIsDeleted(0);
         drug.setStockQuantity(0); // 初始库存为0，需通过购进增加
@@ -87,7 +105,7 @@ public class DrugController {
         drugMapper.insert(drug);
 
         // 自动生成初始化批次
-        com.gcky.durginoutsystem.entity.DrugBatch batch = new com.gcky.durginoutsystem.entity.DrugBatch();
+        DrugBatch batch = new DrugBatch();
         batch.setDrugId(drug.getId());
         batch.setBatchNo("INIT"); // 初始化批次号
         batch.setPrice(drug.getPrice());
@@ -100,15 +118,11 @@ public class DrugController {
         return Result.success("药品添加成功");
     }
 
-    // 修改批次库存
-    @Autowired
-    private com.gcky.durginoutsystem.service.DrugStockService drugStockService;
-
     // 修改批次信息（生产厂家等）
     @Log("修改批次信息")
     @PutMapping("/batch/{batchId}")
     public Result<String> updateBatch(@PathVariable Long batchId, @RequestBody Map<String, Object> body) {
-        com.gcky.durginoutsystem.entity.DrugBatch batch = drugBatchMapper.selectById(batchId);
+        DrugBatch batch = drugBatchMapper.selectById(batchId);
         if (batch == null) {
             return Result.error(404, "批次不存在");
         }
@@ -118,13 +132,13 @@ public class DrugController {
         if (body.containsKey("productionDate")) {
             String dateStr = (String) body.get("productionDate");
             if (dateStr != null && !dateStr.isEmpty()) {
-                batch.setProductionDate(java.time.LocalDate.parse(dateStr));
+                batch.setProductionDate(LocalDate.parse(dateStr));
             }
         }
         if (body.containsKey("expiryDate")) {
             String dateStr = (String) body.get("expiryDate");
             if (dateStr != null && !dateStr.isEmpty()) {
-                batch.setExpiryDate(java.time.LocalDate.parse(dateStr));
+                batch.setExpiryDate(LocalDate.parse(dateStr));
             }
         }
         drugBatchMapper.updateById(batch);
@@ -134,7 +148,7 @@ public class DrugController {
     @Log("修改批次库存")
     @PutMapping("/batch/{batchId}/stock")
     public Result<String> updateBatchStock(@PathVariable Long batchId, @RequestParam Integer quantity) {
-        com.gcky.durginoutsystem.entity.DrugBatch batch = drugBatchMapper.selectById(batchId);
+        DrugBatch batch = drugBatchMapper.selectById(batchId);
         if (batch == null) {
             return Result.error(404, "批次不存在");
         }
@@ -151,21 +165,22 @@ public class DrugController {
     // 修改药品
     @Log("修改药品信息")
     @PutMapping("/{id}")
+    @Transactional(rollbackFor = Exception.class)
     public Result<String> updateDrug(@PathVariable Long id, @RequestBody Drug drug) {
         drug.setId(id);
         
         // 如果修改了库存数量，且当前没有批次信息，则自动生成初始化批次
         if (drug.getStockQuantity() != null) {
-            QueryWrapper<com.gcky.durginoutsystem.entity.DrugBatch> batchQuery = new QueryWrapper<>();
+            QueryWrapper<DrugBatch> batchQuery = new QueryWrapper<>();
             batchQuery.eq("drug_id", id);
             Long batchCount = drugBatchMapper.selectCount(batchQuery);
             
             if (batchCount == 0) {
                 // 获取当前药品信息以获取价格（如果前端没传）
                 Drug currentDrug = drugMapper.selectById(id);
-                java.math.BigDecimal price = drug.getPrice() != null ? drug.getPrice() : (currentDrug != null ? currentDrug.getPrice() : java.math.BigDecimal.ZERO);
+                BigDecimal price = drug.getPrice() != null ? drug.getPrice() : (currentDrug != null ? currentDrug.getPrice() : BigDecimal.ZERO);
                 
-                com.gcky.durginoutsystem.entity.DrugBatch batch = new com.gcky.durginoutsystem.entity.DrugBatch();
+                DrugBatch batch = new DrugBatch();
                 batch.setDrugId(id);
                 batch.setBatchNo("INIT_AUTO"); // 自动生成的初始化批次
                 batch.setPrice(price);
@@ -181,15 +196,12 @@ public class DrugController {
         return Result.success("药品信息更新成功");
     }
 
-    @Autowired
-    private com.gcky.durginoutsystem.mapper.VisitDrugMapper visitDrugMapper;
-
     // 删除药品 (软删除)
     @Log("删除药品")
     @DeleteMapping("/{id}")
     public Result<String> deleteDrug(@PathVariable Long id) {
         // 检查该药品是否有相关的使用记录 (visit_drugs)
-        QueryWrapper<com.gcky.durginoutsystem.entity.VisitDrug> checkQuery = new QueryWrapper<>();
+        QueryWrapper<VisitDrug> checkQuery = new QueryWrapper<>();
         checkQuery.eq("drug_id", id);
         Long count = visitDrugMapper.selectCount(checkQuery);
         

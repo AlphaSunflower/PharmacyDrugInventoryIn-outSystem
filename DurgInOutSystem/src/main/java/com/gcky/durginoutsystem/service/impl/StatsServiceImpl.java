@@ -10,6 +10,7 @@ import org.springframework.stereotype.Service;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -89,7 +90,9 @@ public class StatsServiceImpl implements StatsService {
 
             BigDecimal purchasePrice = drug.getPrice();
             if (!myPurchases.isEmpty()) {
-                myPurchases.sort(Comparator.comparing(PurchaseDetail::getCreatedAt).reversed());
+                myPurchases.sort(Comparator.comparing(
+                    (PurchaseDetail p) -> p.getCreatedAt() != null ? p.getCreatedAt() : LocalDateTime.MIN,
+                    Comparator.reverseOrder()));
                 purchasePrice = myPurchases.get(0).getPrice();
             }
 
@@ -102,11 +105,15 @@ public class StatsServiceImpl implements StatsService {
             BigDecimal startAmt = BigDecimal.ZERO;
             if (!isStartStockMissing) {
                 InventoryCheckDetail lastDetail = lastCheckDetailMap.get(drugId);
-                if (lastDetail != null && lastDetail.getActualStock() != null) {
-                    startStock = lastDetail.getActualStock();
-                    startAmt = lastDetail.getActualAmount() != null
-                            ? lastDetail.getActualAmount()
-                            : drug.getPrice().multiply(new BigDecimal(startStock));
+                if (lastDetail != null) {
+                    if (lastDetail.getActualStock() != null) {
+                        startStock = lastDetail.getActualStock();
+                    }
+                    if (lastDetail.getActualAmount() != null) {
+                        startAmt = lastDetail.getActualAmount();
+                    } else if (lastDetail.getActualStock() != null) {
+                        startAmt = drug.getPrice().multiply(new BigDecimal(startStock));
+                    }
                 }
             }
 
@@ -123,6 +130,7 @@ public class StatsServiceImpl implements StatsService {
                             : (endActual != null ? drug.getPrice().multiply(new BigDecimal(endActual)) : BigDecimal.ZERO);
                 } else {
                     endTheoretical = startStock + purchaseQty - usageQty;
+                    endAmt = drug.getPrice().multiply(new BigDecimal(endTheoretical));
                 }
             } else {
                 endTheoretical = startStock + purchaseQty - usageQty;
@@ -293,17 +301,18 @@ public class StatsServiceImpl implements StatsService {
 
         // 期末库存
         BigDecimal finalStockAmount = BigDecimal.ZERO;
+        boolean isYearEndStockMissing = false;
         List<String> missingMonths = new ArrayList<>();
         if (isYearly) {
-            // 取最近一个完成盘点月份的期末金额
-            for (int m = 12; m >= 1; m--) {
-                String mStr = String.format("%s-%02d", periodKey, m);
-                if (LocalDate.parse(mStr + "-01").isAfter(LocalDate.now())) continue;
-                InventoryCheckTask task = inventoryTaskMapper.selectOne(
-                        new QueryWrapper<InventoryCheckTask>().eq("month", mStr).eq("status", "COMPLETED"));
-                if (task != null) {
-                    finalStockAmount = sumActualAmount(task.getId(), validDrugIds);
-                    break;
+            // 仅取 12 月盘点作为年末库存，不降级到其他月份
+            String decMonth = periodKey + "-12";
+            if (!LocalDate.parse(decMonth + "-01").isAfter(LocalDate.now())) {
+                InventoryCheckTask decTask = inventoryTaskMapper.selectOne(
+                        new QueryWrapper<InventoryCheckTask>().eq("month", decMonth).eq("status", "COMPLETED"));
+                if (decTask != null) {
+                    finalStockAmount = sumActualAmount(decTask.getId(), validDrugIds);
+                } else {
+                    isYearEndStockMissing = true;
                 }
             }
             for (int m = 1; m <= 12; m++) {
@@ -351,6 +360,7 @@ public class StatsServiceImpl implements StatsService {
         result.put("finalStockAmount", finalStockAmount);
         result.put("leaderMedicineAmount", leaderAmount);
         result.put("isLastYearStockMissing", isPrevStockMissing);
+        result.put("isYearEndStockMissing", isYearEndStockMissing);
         result.put("missingInventoryMonths", missingMonths);
         return result;
     }
@@ -429,6 +439,9 @@ public class StatsServiceImpl implements StatsService {
                 vo.put("initialStockAmount", initStock);
                 vo.put("purchaseTotalAmount", purchaseAmt);
                 vo.put("finalStockAmount", finalStock);
+                vo.put("missingInventoryMonths", stats.get("missingInventoryMonths"));
+                vo.put("isLastYearStockMissing", stats.get("isLastYearStockMissing"));
+                vo.put("isYearEndStockMissing", stats.get("isYearEndStockMissing"));
             }
             excelList.add(vo);
         }

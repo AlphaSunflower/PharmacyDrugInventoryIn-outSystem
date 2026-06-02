@@ -4,12 +4,15 @@ import java.math.BigDecimal; // Import added
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.gcky.durginoutsystem.entity.Drug;
+import com.gcky.durginoutsystem.entity.DrugBatch;
 import com.gcky.durginoutsystem.entity.InventoryCheckDetail;
 import com.gcky.durginoutsystem.entity.InventoryCheckTask;
+import com.gcky.durginoutsystem.exception.BusinessException;
+import com.gcky.durginoutsystem.mapper.DrugBatchMapper;
 import com.gcky.durginoutsystem.mapper.DrugMapper;
 import com.gcky.durginoutsystem.mapper.InventoryCheckDetailMapper;
-import com.gcky.durginoutsystem.exception.BusinessException;
 import com.gcky.durginoutsystem.mapper.InventoryCheckTaskMapper;
+import com.gcky.durginoutsystem.service.DrugStockService;
 import com.gcky.durginoutsystem.service.InventoryService;
 import org.springframework.beans.BeanUtils;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -33,9 +36,9 @@ public class InventoryServiceImpl implements InventoryService {
     @Autowired
     private DrugMapper drugMapper;
     @Autowired
-    private com.gcky.durginoutsystem.mapper.DrugBatchMapper drugBatchMapper;
+    private DrugBatchMapper drugBatchMapper;
     @Autowired
-    private com.gcky.durginoutsystem.service.DrugStockService drugStockService;
+    private DrugStockService drugStockService;
 
     @Override
     @Transactional(rollbackFor = Exception.class)
@@ -127,17 +130,17 @@ public class InventoryServiceImpl implements InventoryService {
     private BigDecimal calculateInventoryValue(Long drugId, Integer quantity) {
         if (quantity == null || quantity <= 0) return BigDecimal.ZERO;
 
-        QueryWrapper<com.gcky.durginoutsystem.entity.DrugBatch> query = new QueryWrapper<>();
+        QueryWrapper<DrugBatch> query = new QueryWrapper<>();
         query.eq("drug_id", drugId)
              .gt("stock_quantity", 0)
              .orderByAsc("created_at");
-        List<com.gcky.durginoutsystem.entity.DrugBatch> batches = drugBatchMapper.selectList(query);
+        List<DrugBatch> batches = drugBatchMapper.selectList(query);
         
         BigDecimal totalValue = BigDecimal.ZERO;
         int remaining = quantity;
         
         // 1. 先用现有批次凑
-        for (com.gcky.durginoutsystem.entity.DrugBatch batch : batches) {
+        for (DrugBatch batch : batches) {
             if (remaining <= 0) break;
             int take = Math.min(remaining, batch.getStockQuantity()); // 注意：这里不是扣减，只是计算价值，所以取 batch.getStockQuantity() 即可
             // 但如果实盘数量 > 系统库存，这里可能会有问题，因为批次加起来不够
@@ -212,12 +215,12 @@ public class InventoryServiceImpl implements InventoryService {
     private void adjustBatches(Long drugId, int diff) {
         if (diff > 0) {
             // 盘盈：加行锁后原子性增加最新批次库存
-            com.gcky.durginoutsystem.entity.DrugBatch latestBatch = drugBatchMapper.selectLatestForUpdate(drugId);
+            DrugBatch latestBatch = drugBatchMapper.selectLatestForUpdate(drugId);
             if (latestBatch != null) {
                 drugBatchMapper.incrementStock(latestBatch.getId(), diff);
             } else {
                 Drug drug = drugMapper.selectById(drugId);
-                com.gcky.durginoutsystem.entity.DrugBatch newBatch = new com.gcky.durginoutsystem.entity.DrugBatch();
+                DrugBatch newBatch = new DrugBatch();
                 newBatch.setDrugId(drugId);
                 newBatch.setPrice(drug != null ? drug.getPrice() : BigDecimal.ZERO);
                 newBatch.setStockQuantity(diff);
@@ -229,9 +232,9 @@ public class InventoryServiceImpl implements InventoryService {
         } else {
             // 盘亏：FIFO 扣减（加行锁防并发）
             int toDeduct = Math.abs(diff);
-            List<com.gcky.durginoutsystem.entity.DrugBatch> batches = drugBatchMapper.selectBatchesForUpdate(drugId);
+            List<DrugBatch> batches = drugBatchMapper.selectBatchesForUpdate(drugId);
 
-            for (com.gcky.durginoutsystem.entity.DrugBatch batch : batches) {
+            for (DrugBatch batch : batches) {
                 if (toDeduct <= 0) break;
                 int deductAmount = Math.min(batch.getStockQuantity(), toDeduct);
                 drugBatchMapper.incrementStock(batch.getId(), -deductAmount);

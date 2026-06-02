@@ -389,7 +389,8 @@ class DispenseHistoryView(QWidget):
         if res.status_code == 200:
             data = res.json()
             if data['code'] == 200:
-                self.diagnosis_types = data['data']
+                page_data = data['data']
+                self.diagnosis_types = page_data.get('records', page_data) if isinstance(page_data, dict) else page_data
 
     def reset_search(self):
         self.search_input.clear()
@@ -1647,11 +1648,16 @@ class DrugManageView(QWidget):
         cancel_btn.clicked.connect(dialog.reject)
         
         def save():
+            try:
+                price = float(price_edit.text() or 0)
+            except ValueError:
+                ModernMessageBox.warning(dialog, "输入错误", "请输入有效的价格数字")
+                return
             data = {
                 "name": name_edit.text(),
                 "spec": spec_edit.text(),
                 "unit": unit_edit.text(),
-                "price": float(price_edit.text() or 0)
+                "price": price
             }
 
             stock_updated_via_batch = False
@@ -2094,7 +2100,7 @@ class PurchaseView(QWidget):
         try:
             amount_val = float(total_amount)
             if amount_val <= 0: raise ValueError
-        except:
+        except (ValueError, TypeError):
             ModernMessageBox.warning(self, "提示", "请输入有效的总金额")
             return
             
@@ -2501,9 +2507,14 @@ class StatsView(QWidget):
             # 获取盘点状态标记
             is_start_missing = result.get('isStartStockMissing', False)
             is_current_checked = result.get('isCurrentMonthChecked', True)
-            
-            if not is_current_checked:
-                ModernMessageBox.warning(self, "盘点未完成", 
+
+            if is_start_missing:
+                prev_month = QDate.fromString(month + "-01", "yyyy-MM-dd").addMonths(-1).toString("yyyy-MM")
+                ModernMessageBox.warning(self, "期初库存缺失",
+                    f"未找到 {prev_month} 的盘点记录，期初库存数据可能不准确。\n"
+                    f"请先完成 {prev_month} 的库存盘点，以确保进销存数据完整。")
+            elif not is_current_checked:
+                ModernMessageBox.warning(self, "盘点未完成",
                                        f"{month} 月份尚未完成期末盘点，报表数据可能存在偏差。")
             
             self.drug_stats_tab.setColumnCount(13)
@@ -2604,6 +2615,19 @@ class StatsView(QWidget):
             init_stock = data.get('initialStockAmount', 0)
             purchase_amt = data.get('purchaseTotalAmount', 0)
             final_stock = data.get('finalStockAmount', 0)
+            is_last_missing = data.get('isLastYearStockMissing', False)
+            missing_months = data.get('missingInventoryMonths', [])
+
+            # 数据完整性警告
+            if is_last_missing or missing_months:
+                warnings = []
+                if is_last_missing:
+                    prev = QDate.fromString(month + "-01", "yyyy-MM-dd").addMonths(-1).toString("yyyy-MM")
+                    warnings.append(f"未找到 {prev} 的盘点记录，期初库存金额可能不准确")
+                if missing_months:
+                    warnings.append(f"缺失盘点月份: {', '.join(missing_months)}")
+                ModernMessageBox.warning(self, "数据完整性提示",
+                    "\n".join(warnings) + "\n\n请先完成缺失月份的库存盘点，以确保报表数据准确。")
             
             self.monthly_summary_tab.setRowCount(len(rows))
             self.monthly_summary_tab.clearSpans() # 清除旧的合并
@@ -2652,22 +2676,23 @@ class StatsView(QWidget):
             purchase_amt = data.get('purchaseTotalAmount', 0)
             final_stock = data.get('finalStockAmount', 0)
             is_last_missing = data.get('isLastYearStockMissing', False)
+            is_year_end_missing = data.get('isYearEndStockMissing', False)
             missing_months = data.get('missingInventoryMonths', [])
-            
+
             # 显示警告
             warnings = []
-            if is_last_missing and init_stock == 0:
-                warnings.append(f"警告：未找到 {int(year)-1} 年 12 月的盘点记录，期初库存金额可能不准确。")
-            
+            if is_last_missing or init_stock == 0:
+                warnings.append(f"未找到 {int(year)-1} 年 12 月的盘点记录，期初库存金额可能不准确")
+            if is_year_end_missing:
+                warnings.append(f"未找到 {year} 年 12 月的盘点记录，期末库存金额不可用。请先完成 12 月盘点")
             if missing_months:
-                warnings.append(f"警告：以下月份尚未进行库存盘点，影响期末库存金额统计：{', '.join(missing_months)}")
-            
+                warnings.append(f"以下月份未进行库存盘点: {', '.join(missing_months)}")
+
             if warnings:
-                msg = "\n".join(warnings)
+                msg = "\n".join(warnings) + "\n\n请先完成缺失月份的库存盘点后再查看报表。"
                 self.yearly_warning_label.setText(msg)
                 self.yearly_warning_label.setVisible(True)
-                # 同时也保留弹窗，双重提醒
-                # ModernMessageBox.warning(self, "数据完整性警告", msg) 
+                ModernMessageBox.warning(self, "数据完整性警告", msg)
             else:
                 self.yearly_warning_label.setVisible(False)
             

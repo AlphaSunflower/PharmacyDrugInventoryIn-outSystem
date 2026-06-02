@@ -62,16 +62,19 @@ class APIClient:
             return False, "网络错误"
 
     def logout(self, machine_id=None):
+        success = True
         try:
             data = {"machineId": machine_id} if machine_id else {}
-            self.post("/auth/logout", data=data)
+            resp = self.post("/auth/logout", data=data)
+            if resp.status_code != 200:
+                success = False
         except Exception:
-            pass
+            success = False
         finally:
             self.token = None
             self.user_role = None
             self.user_id = None
-            return True
+            return success
 
     def _get_headers(self):
         headers = {}
@@ -146,6 +149,27 @@ class APIClient:
 
     def delete_purchase_plan(self, plan_id):
         return self.delete(f"/purchase-plans/{plan_id}")
+
+    def close(self):
+        """关闭底层连接池"""
+        try:
+            self._session.close()
+        except Exception:
+            pass
+
+    def __del__(self):
+        try:
+            self._session.close()
+        except Exception:
+            pass
+
+    @staticmethod
+    def safe_json(response):
+        """安全解析 JSON，非 JSON 响应返回 None"""
+        try:
+            return response.json()
+        except Exception:
+            return None
 
     def get_drug_manufacturers(self, drug_id):
         return self.get(f"/purchase-plans/drug/{drug_id}/manufacturers")

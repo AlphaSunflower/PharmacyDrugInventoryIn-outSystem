@@ -1,17 +1,22 @@
 package com.gcky.durginoutsystem.controller;
 
 import com.alibaba.excel.EasyExcel;
+import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.gcky.durginoutsystem.annotation.RequireRole;
 import com.gcky.durginoutsystem.common.Result;
+import com.gcky.durginoutsystem.entity.Drug;
+import com.gcky.durginoutsystem.entity.PurchasePlan;
+import com.gcky.durginoutsystem.entity.PurchasePlanDetail;
 import com.gcky.durginoutsystem.entity.excel.DrugStatsExcel;
-import com.gcky.durginoutsystem.entity.excel.OperationStatsExcel;
 import com.gcky.durginoutsystem.entity.excel.InventoryCheckExcel;
+import com.gcky.durginoutsystem.entity.excel.OperationStatsExcel;
 import com.gcky.durginoutsystem.entity.excel.PurchasePlanExcel;
 import com.gcky.durginoutsystem.entity.excel.WorkloadSummaryExcel;
-import com.gcky.durginoutsystem.exception.BusinessException;
+import com.gcky.durginoutsystem.mapper.DrugMapper;
+import com.gcky.durginoutsystem.mapper.PurchasePlanDetailMapper;
+import com.gcky.durginoutsystem.mapper.PurchasePlanMapper;
 import com.gcky.durginoutsystem.service.StatsService;
 import jakarta.servlet.http.HttpServletResponse;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
 
 import java.io.IOException;
@@ -19,24 +24,31 @@ import java.math.BigDecimal;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 @RequireRole({"DOCTOR", "PHARMACIST"})
 @RestController
 @RequestMapping("/api/v1/stats")
 public class StatsController {
 
-    @Autowired
-    private StatsService statsService;
+    private final StatsService statsService;
+    private final PurchasePlanMapper purchasePlanMapper;
+    private final PurchasePlanDetailMapper purchasePlanDetailMapper;
+    private final DrugMapper drugMapper;
 
-    @Autowired
-    private com.gcky.durginoutsystem.mapper.PurchasePlanMapper purchasePlanMapper;
-    @Autowired
-    private com.gcky.durginoutsystem.mapper.PurchasePlanDetailMapper purchasePlanDetailMapper;
-    @Autowired
-    private com.gcky.durginoutsystem.mapper.DrugMapper drugMapper;
+    public StatsController(StatsService statsService,
+                           PurchasePlanMapper purchasePlanMapper,
+                           PurchasePlanDetailMapper purchasePlanDetailMapper,
+                           DrugMapper drugMapper) {
+        this.statsService = statsService;
+        this.purchasePlanMapper = purchasePlanMapper;
+        this.purchasePlanDetailMapper = purchasePlanDetailMapper;
+        this.drugMapper = drugMapper;
+    }
 
     // ==================== API 端点 ====================
 
@@ -66,31 +78,31 @@ public class StatsController {
     public Result<Map<String, Object>> getPurchasePlan(@RequestParam String month) {
         Map<String, Object> result = new HashMap<>();
 
-        com.baomidou.mybatisplus.core.conditions.query.QueryWrapper<com.gcky.durginoutsystem.entity.PurchasePlan> planQuery =
-                new com.baomidou.mybatisplus.core.conditions.query.QueryWrapper<>();
+        QueryWrapper<PurchasePlan> planQuery =
+                new QueryWrapper<>();
         planQuery.eq("month", month);
-        com.gcky.durginoutsystem.entity.PurchasePlan plan = purchasePlanMapper.selectOne(planQuery);
+        PurchasePlan plan = purchasePlanMapper.selectOne(planQuery);
 
         if (plan == null) {
             result.put("status", "NOT_FOUND");
-            result.put("details", java.util.Collections.emptyList());
+            result.put("details", Collections.emptyList());
             return Result.success(result);
         }
 
         result.put("status", plan.getStatus());
 
-        com.baomidou.mybatisplus.core.conditions.query.QueryWrapper<com.gcky.durginoutsystem.entity.PurchasePlanDetail> detailQuery =
-                new com.baomidou.mybatisplus.core.conditions.query.QueryWrapper<>();
+        QueryWrapper<PurchasePlanDetail> detailQuery =
+                new QueryWrapper<>();
         detailQuery.eq("plan_id", plan.getId());
-        List<com.gcky.durginoutsystem.entity.PurchasePlanDetail> details = purchasePlanDetailMapper.selectList(detailQuery);
+        List<PurchasePlanDetail> details = purchasePlanDetailMapper.selectList(detailQuery);
 
-        List<Long> drugIds = details.stream().map(com.gcky.durginoutsystem.entity.PurchasePlanDetail::getDrugId).distinct().collect(java.util.stream.Collectors.toList());
-        Map<Long, com.gcky.durginoutsystem.entity.Drug> drugMap = drugIds.isEmpty() ? java.util.Collections.emptyMap() :
-                drugMapper.selectBatchIds(drugIds).stream().collect(java.util.stream.Collectors.toMap(com.gcky.durginoutsystem.entity.Drug::getId, d -> d));
+        List<Long> drugIds = details.stream().map(PurchasePlanDetail::getDrugId).distinct().collect(Collectors.toList());
+        Map<Long, Drug> drugMap = drugIds.isEmpty() ? Collections.emptyMap() :
+                drugMapper.selectBatchIds(drugIds).stream().collect(Collectors.toMap(Drug::getId, d -> d));
 
         List<Map<String, Object>> detailList = details.stream().map(d -> {
             Map<String, Object> map = new HashMap<>();
-            com.gcky.durginoutsystem.entity.Drug drug = drugMap.get(d.getDrugId());
+            Drug drug = drugMap.get(d.getDrugId());
             map.put("drugName", drug != null ? drug.getName() : "Unknown");
             map.put("spec", d.getSpec());
             map.put("unit", d.getUnit());
@@ -98,7 +110,7 @@ public class StatsController {
             map.put("manufacturer", d.getManufacturer());
             map.put("plannedQuantity", d.getPlannedQuantity());
             return map;
-        }).collect(java.util.stream.Collectors.toList());
+        }).collect(Collectors.toList());
 
         result.put("details", detailList);
         return Result.success(result);
@@ -222,6 +234,9 @@ public class StatsController {
                 vo.setInitialStockAmount((BigDecimal) map.get("initialStockAmount"));
                 vo.setPurchaseTotalAmount((BigDecimal) map.get("purchaseTotalAmount"));
                 vo.setFinalStockAmount((BigDecimal) map.get("finalStockAmount"));
+                vo.setMissingInventoryMonths(formatList(map.get("missingInventoryMonths")));
+                vo.setIsLastYearStockMissing(formatBool(map.get("isLastYearStockMissing")));
+                vo.setIsYearEndStockMissing(formatBool(map.get("isYearEndStockMissing")));
             }
             rows.add(vo);
         }
@@ -246,6 +261,9 @@ public class StatsController {
                 vo.setInitialStockAmount((BigDecimal) map.get("initialStockAmount"));
                 vo.setPurchaseTotalAmount((BigDecimal) map.get("purchaseTotalAmount"));
                 vo.setFinalStockAmount((BigDecimal) map.get("finalStockAmount"));
+                vo.setMissingInventoryMonths(formatList(map.get("missingInventoryMonths")));
+                vo.setIsLastYearStockMissing(formatBool(map.get("isLastYearStockMissing")));
+                vo.setIsYearEndStockMissing(formatBool(map.get("isYearEndStockMissing")));
             }
             rows.add(vo);
         }
@@ -259,10 +277,10 @@ public class StatsController {
     @GetMapping("/purchase-plan/export")
     public void exportPurchasePlan(@RequestParam String month, HttpServletResponse response) throws IOException {
         // 查询当月采购计划
-        com.baomidou.mybatisplus.core.conditions.query.QueryWrapper<com.gcky.durginoutsystem.entity.PurchasePlan> planQuery =
-                new com.baomidou.mybatisplus.core.conditions.query.QueryWrapper<>();
+        QueryWrapper<PurchasePlan> planQuery =
+                new QueryWrapper<>();
         planQuery.eq("month", month);
-        com.gcky.durginoutsystem.entity.PurchasePlan plan = purchasePlanMapper.selectOne(planQuery);
+        PurchasePlan plan = purchasePlanMapper.selectOne(planQuery);
 
         if (plan == null) {
             response.setStatus(400);
@@ -278,20 +296,20 @@ public class StatsController {
         }
 
         // 查询明细
-        com.baomidou.mybatisplus.core.conditions.query.QueryWrapper<com.gcky.durginoutsystem.entity.PurchasePlanDetail> detailQuery =
-                new com.baomidou.mybatisplus.core.conditions.query.QueryWrapper<>();
+        QueryWrapper<PurchasePlanDetail> detailQuery =
+                new QueryWrapper<>();
         detailQuery.eq("plan_id", plan.getId());
-        List<com.gcky.durginoutsystem.entity.PurchasePlanDetail> details = purchasePlanDetailMapper.selectList(detailQuery);
+        List<PurchasePlanDetail> details = purchasePlanDetailMapper.selectList(detailQuery);
 
         // 批量加载药品名称
-        List<Long> drugIds = details.stream().map(com.gcky.durginoutsystem.entity.PurchasePlanDetail::getDrugId).distinct().collect(java.util.stream.Collectors.toList());
-        Map<Long, com.gcky.durginoutsystem.entity.Drug> drugMap = drugIds.isEmpty() ? java.util.Collections.emptyMap() :
-                drugMapper.selectBatchIds(drugIds).stream().collect(java.util.stream.Collectors.toMap(com.gcky.durginoutsystem.entity.Drug::getId, d -> d));
+        List<Long> drugIds = details.stream().map(PurchasePlanDetail::getDrugId).distinct().collect(Collectors.toList());
+        Map<Long, Drug> drugMap = drugIds.isEmpty() ? Collections.emptyMap() :
+                drugMapper.selectBatchIds(drugIds).stream().collect(Collectors.toMap(Drug::getId, d -> d));
 
         List<PurchasePlanExcel> excelList = new ArrayList<>();
-        for (com.gcky.durginoutsystem.entity.PurchasePlanDetail d : details) {
+        for (PurchasePlanDetail d : details) {
             PurchasePlanExcel vo = new PurchasePlanExcel();
-            com.gcky.durginoutsystem.entity.Drug drug = drugMap.get(d.getDrugId());
+            Drug drug = drugMap.get(d.getDrugId());
             vo.setDrugName(drug != null ? drug.getName() : "Unknown");
             vo.setSpec(d.getSpec());
             vo.setUnit(d.getUnit());
@@ -310,5 +328,17 @@ public class StatsController {
         response.setCharacterEncoding("utf-8");
         String encoded = URLEncoder.encode(fileName, StandardCharsets.UTF_8).replaceAll("\\+", "%20");
         response.setHeader("Content-disposition", "attachment;filename*=utf-8''" + encoded + ".xlsx");
+    }
+
+    @SuppressWarnings("unchecked")
+    private String formatList(Object obj) {
+        if (obj instanceof List) {
+            return String.join(", ", (List<String>) obj);
+        }
+        return "";
+    }
+
+    private String formatBool(Object obj) {
+        return Boolean.TRUE.equals(obj) ? "是" : "否";
     }
 }

@@ -1,25 +1,28 @@
 package com.gcky.durginoutsystem.controller;
 
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
+import com.gcky.durginoutsystem.annotation.Log;
+import com.gcky.durginoutsystem.annotation.RequireRole;
 import com.gcky.durginoutsystem.common.Result;
 import com.gcky.durginoutsystem.entity.Drug;
+import com.gcky.durginoutsystem.entity.DrugBatch;
 import com.gcky.durginoutsystem.entity.PurchaseDetail;
+import com.gcky.durginoutsystem.mapper.DrugBatchMapper;
 import com.gcky.durginoutsystem.mapper.DrugMapper;
 import com.gcky.durginoutsystem.mapper.PurchaseDetailMapper;
+import com.gcky.durginoutsystem.service.DrugStockService;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.BeanUtils;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
 
+import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
-
-import com.gcky.durginoutsystem.annotation.Log;
 import com.gcky.durginoutsystem.annotation.RequireRole;
 
 @RequireRole({"DOCTOR", "PHARMACIST"})
@@ -28,14 +31,20 @@ import com.gcky.durginoutsystem.annotation.RequireRole;
 @RequestMapping("/api/v1/purchases")
 public class PurchaseController {
 
-    @Autowired
-    private PurchaseDetailMapper purchaseMapper;
-    @Autowired
-    private DrugMapper drugMapper;
-    @Autowired
-    private com.gcky.durginoutsystem.mapper.DrugBatchMapper drugBatchMapper;
-    @Autowired
-    private com.gcky.durginoutsystem.service.DrugStockService drugStockService;
+    private final PurchaseDetailMapper purchaseMapper;
+    private final DrugMapper drugMapper;
+    private final DrugBatchMapper drugBatchMapper;
+    private final DrugStockService drugStockService;
+
+    public PurchaseController(PurchaseDetailMapper purchaseMapper,
+                              DrugMapper drugMapper,
+                              DrugBatchMapper drugBatchMapper,
+                              DrugStockService drugStockService) {
+        this.purchaseMapper = purchaseMapper;
+        this.drugMapper = drugMapper;
+        this.drugBatchMapper = drugBatchMapper;
+        this.drugStockService = drugStockService;
+    }
 
     // 获取某月的购进记录
     @GetMapping
@@ -51,7 +60,7 @@ public class PurchaseController {
             List<Drug> drugs = drugMapper.selectList(drugQuery);
             
             if (drugs.isEmpty()) {
-                return Result.success(java.util.Collections.emptyList());
+                return Result.success(Collections.emptyList());
             }
             
             List<Long> drugIds = drugs.stream().map(Drug::getId).collect(Collectors.toList());
@@ -63,7 +72,7 @@ public class PurchaseController {
 
         // 批量加载药品名称（消除 N+1）
         List<Long> drugIds = list.stream().map(PurchaseDetail::getDrugId).distinct().collect(Collectors.toList());
-        Map<Long, Drug> drugMap = drugIds.isEmpty() ? java.util.Collections.emptyMap() :
+        Map<Long, Drug> drugMap = drugIds.isEmpty() ? Collections.emptyMap() :
                 drugMapper.selectBatchIds(drugIds).stream().collect(Collectors.toMap(Drug::getId, d -> d));
 
         List<Map<String, Object>> result = list.stream().map(p -> {
@@ -79,7 +88,7 @@ public class PurchaseController {
             map.put("drugName", drug != null ? drug.getName() : "Unknown");
             // 从关联批次获取生产厂家
             if (p.getBatchId() != null) {
-                com.gcky.durginoutsystem.entity.DrugBatch batch = drugBatchMapper.selectById(p.getBatchId());
+                DrugBatch batch = drugBatchMapper.selectById(p.getBatchId());
                 map.put("manufacturer", batch != null ? batch.getManufacturer() : null);
             } else {
                 map.put("manufacturer", null);
@@ -97,7 +106,7 @@ public class PurchaseController {
     public Result<String> addPurchaseBatch(@RequestBody List<PurchaseDetail> purchases) {
         for (PurchaseDetail purchase : purchases) {
             // 1. 创建新批次 (不再合并)
-            com.gcky.durginoutsystem.entity.DrugBatch batch = new com.gcky.durginoutsystem.entity.DrugBatch();
+            DrugBatch batch = new DrugBatch();
             batch.setDrugId(purchase.getDrugId());
             batch.setPrice(purchase.getPrice());
             batch.setStockQuantity(purchase.getQuantity());
@@ -117,8 +126,8 @@ public class PurchaseController {
             purchase.setCreatedAt(LocalDateTime.now());
             if (purchase.getTotalAmount() == null) {
                 // 防止空指针
-                java.math.BigDecimal price = purchase.getPrice() != null ? purchase.getPrice() : java.math.BigDecimal.ZERO;
-                purchase.setTotalAmount(price.multiply(new java.math.BigDecimal(purchase.getQuantity())));
+                BigDecimal price = purchase.getPrice() != null ? purchase.getPrice() : BigDecimal.ZERO;
+                purchase.setTotalAmount(price.multiply(new BigDecimal(purchase.getQuantity())));
             }
             purchaseMapper.insert(purchase);
 

@@ -1,33 +1,42 @@
 package com.gcky.durginoutsystem.controller;
 
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.update.UpdateWrapper;
+import com.gcky.durginoutsystem.annotation.Log;
 import com.gcky.durginoutsystem.common.Result;
 import com.gcky.durginoutsystem.entity.User;
 import com.gcky.durginoutsystem.mapper.UserMapper;
 import com.gcky.durginoutsystem.utils.JwtUtil;
-import org.springframework.beans.factory.annotation.Autowired;
+import jakarta.servlet.http.HttpServletRequest;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.HashMap;
 import java.util.Map;
 
-import com.gcky.durginoutsystem.annotation.Log;
-
 @RestController
 @RequestMapping("/api/v1/auth")
 public class AuthController {
 
-    @Autowired
-    private UserMapper userMapper;
+    private final UserMapper userMapper;
+    private final JwtUtil jwtUtil;
 
-    @Autowired
-    private JwtUtil jwtUtil;
+    public AuthController(UserMapper userMapper, JwtUtil jwtUtil) {
+        this.userMapper = userMapper;
+        this.jwtUtil = jwtUtil;
+    }
 
     @Log("用户登录")
     @PostMapping("/login")
+    @Transactional(rollbackFor = Exception.class)
     public Result<Map<String, Object>> login(@RequestBody Map<String, Object> loginData) {
         String username = (String) loginData.get("username");
         String password = (String) loginData.get("password");
+
+        if (username == null || username.isBlank() || password == null || password.isBlank()) {
+            return Result.error(400, "用户名和密码不能为空");
+        }
+
         String machineId = (String) loginData.get("machineId");
         Boolean autoLogin = (Boolean) loginData.get("autoLogin");
 
@@ -61,6 +70,7 @@ public class AuthController {
     
     @Log("自动登录")
     @PostMapping("/auto-login")
+    @Transactional(rollbackFor = Exception.class)
     public Result<Map<String, Object>> autoLogin(@RequestBody Map<String, String> body) {
         String machineId = body.get("machineId");
         if (machineId == null || machineId.isEmpty()) {
@@ -90,7 +100,8 @@ public class AuthController {
     
     @Log("用户退出")
     @PostMapping("/logout")
-    public Result<String> logout(jakarta.servlet.http.HttpServletRequest request,
+    @Transactional(rollbackFor = Exception.class)
+    public Result<String> logout(HttpServletRequest request,
                                  @RequestBody(required = false) Map<String, String> body) {
         Long userId = (Long) request.getAttribute("userId");
 
@@ -99,7 +110,7 @@ public class AuthController {
 
             User user = userMapper.selectById(userId);
             if (user != null && user.getMachineId() != null && user.getMachineId().equals(machineId)) {
-                com.baomidou.mybatisplus.core.conditions.update.UpdateWrapper<User> updateWrapper = new com.baomidou.mybatisplus.core.conditions.update.UpdateWrapper<>();
+                UpdateWrapper<User> updateWrapper = new UpdateWrapper<>();
                 updateWrapper.eq("id", userId).set("machine_id", null);
                 userMapper.update(null, updateWrapper);
                 return Result.success("退出成功，下次需手动登录");
