@@ -63,7 +63,7 @@ set API_BASE_URL=http://your-server:8080
 .venv\Scripts\python main.py
 ```
 
-默认管理员账号：`admin` / `admin123`
+默认管理员账号：`admin` / `123456`
 
 ## 客户端打包
 
