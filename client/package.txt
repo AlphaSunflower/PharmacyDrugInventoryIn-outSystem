@@ -1,7 +1,0 @@
-● 打包命令是：
-
-cd client .venv/Scripts/python -m PyInstaller "药品出入库管理系统.spec" --clean --noconfirm
-
-  或者一步到位（不依赖 spec 文件）：
-
-cd client .venv/Scripts/python -m PyInstaller --onefile --windowed --icon=app.ico --name="药品出入库管理系统" main.py

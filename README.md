@@ -1,4 +1,4 @@
-# 医药协同药品出入库管理系统
+﻿# 医药协同药品出入库管理系统
 
 Pharmacy Drug Inventory Management System — a four-role system supporting doctors writing prescriptions, pharmacists dispensing drugs, managing inventory/purchases, and administrators managing users and audit logs.
 
@@ -36,7 +36,6 @@ Pharmacy Drug Inventory Management System — a four-role system supporting doct
 ```bash
 # 1. Database
 mysql -u root -p < database/init.sql
-mysql -u root -p < database/update_purchase_plan.sql  # migration
 
 # 2. Backend
 cd DurgInOutSystem
@@ -44,8 +43,13 @@ cd DurgInOutSystem
 
 # 3. Client
 cd client
-pip install PyQt6 requests
-python main.py
+python -m venv .venv
+.venv\Scripts\pip install PyQt6 requests
+
+# Set backend URL (default: http://localhost:8080)
+set API_BASE_URL=http://your-server:8080
+
+.venv\Scripts\python main.py
 ```
 
 Default admin account: `admin` / `admin123`
