@@ -33,28 +33,17 @@
 
 ## 数据库初始化
 
-项目使用 MySQL 8.0，所有数据库脚本集中在 `database/` 目录：
+项目使用 MySQL 8.0，数据库脚本统一放在 `database/` 目录。
 
-```
-database/
-├── init.sql          # 初始建表 + 种子数据
-└── update_*.sql      # 增量迁移脚本（按序号执行）
-```
-
-首次部署时按顺序执行：
+首次部署时执行 `database/init.sql` 即可完成建表和种子数据导入：
 
 ```bash
-# 1. 创建数据库并导入初始化脚本
 mysql -u root -p -e "CREATE DATABASE IF NOT EXISTS drug_in_out DEFAULT CHARACTER SET utf8mb4;"
 mysql -u root -p drug_in_out < database/init.sql
-
-# 2. 依次执行迁移脚本
-mysql -u root -p drug_in_out < database/update_001.sql
-mysql -u root -p drug_in_out < database/update_002.sql
-# ... 按序号继续
 ```
 
-> **注意**：`init.sql` 是基础 schema，生产环境的表结构可能包含额外字段（如 `machine_id`、`role`、`operate_data`）。若需与生产对齐，请参考最新的迁移脚本。
+> **注意**：`init.sql` 是基础 schema，生产环境的表结构可能包含额外字段（如 `machine_id`、`role`、`operate_data`）。若需与生产对齐，请自行执行对应的增量 DDL。
+
 
 ## 快速开始
 
@@ -117,6 +106,5 @@ cd client
 │   ├── ui/                 # 视图、组件、样式
 │   └── utils/              # API 客户端
 └── database/           # 数据库脚本
-    ├── init.sql             # 初始建表 + 种子数据
-    └── update_*.sql         # 增量迁移脚本
+    └── init.sql             # 初始建表 + 种子数据
 ```
