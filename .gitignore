@@ -45,7 +45,7 @@ application-dev.yml
 !.mvn/wrapper/maven-wrapper.jar
 
 # AI tool local configs
-**/.claude/
+**/.claude
 .codegraph/
 .codex/
 .cursor/

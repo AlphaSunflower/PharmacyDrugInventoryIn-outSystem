@@ -5,7 +5,7 @@
 ## 技术栈
 
 | 层级 | 技术 |
-|-------|----------|
+|------|------|
 | 后端 | Java 17, Spring Boot 3.5.9, MyBatis Plus 3.5.5, JWT, EasyExcel 3.3.3 |
 | 客户端 | Python 3, PyQt6 桌面应用 |
 | 数据库 | MySQL 8.0 |
@@ -31,17 +31,39 @@
 - **通知系统**：实时角标计数和弹窗通知待处理处方
 - **键盘导航**：全局键盘操作，Enter 链式切换、下拉导航、Alt 快捷键、输入提示
 
+## 数据库初始化
+
+项目使用 MySQL 8.0，所有数据库脚本集中在 `database/` 目录：
+
+```
+database/
+├── init.sql          # 初始建表 + 种子数据
+└── update_*.sql      # 增量迁移脚本（按序号执行）
+```
+
+首次部署时按顺序执行：
+
+```bash
+# 1. 创建数据库并导入初始化脚本
+mysql -u root -p -e "CREATE DATABASE IF NOT EXISTS drug_in_out DEFAULT CHARACTER SET utf8mb4;"
+mysql -u root -p drug_in_out < database/init.sql
+
+# 2. 依次执行迁移脚本
+mysql -u root -p drug_in_out < database/update_001.sql
+mysql -u root -p drug_in_out < database/update_002.sql
+# ... 按序号继续
+```
+
+> **注意**：`init.sql` 是基础 schema，生产环境的表结构可能包含额外字段（如 `machine_id`、`role`、`operate_data`）。若需与生产对齐，请参考最新的迁移脚本。
+
 ## 快速开始
 
 ```bash
-# 1. 数据库
-mysql -u root -p < database/init.sql
-
-# 2. 后端
+# 1. 后端
 cd DurgInOutSystem
 ./mvnw spring-boot:run
 
-# 3. 客户端
+# 2. 客户端
 cd client
 python -m venv .venv
 .venv\Scripts\pip install PyQt6 requests
@@ -53,6 +75,32 @@ set API_BASE_URL=http://your-server:8080
 ```
 
 默认管理员账号：`admin` / `admin123`
+
+## 客户端打包
+
+使用 PyInstaller 将 PyQt6 客户端打包为独立可执行文件：
+
+```bash
+cd client
+
+# 安装打包工具
+.venv\Scripts\pip install pyinstaller
+
+# 打包为单文件 exe（输出到 dist/ 目录）
+.venv\Scripts\pyinstaller --onefile --windowed --name "药品出入库管理系统" main.py
+```
+
+可选参数说明：
+
+| 参数 | 作用 |
+|------|------|
+| `--onefile` | 打包为单个 exe 文件 |
+| `--windowed` | 无控制台窗口（GUI 应用） |
+| `--name` | 输出文件名 |
+| `--icon=app.ico` | 指定程序图标 |
+| `--add-data` | 打包额外资源文件 |
+
+打包完成后在 `client/dist/` 目录找到 exe，分发给用户即可运行。
 
 ## 项目结构
 
@@ -69,4 +117,6 @@ set API_BASE_URL=http://your-server:8080
 │   ├── ui/                 # 视图、组件、样式
 │   └── utils/              # API 客户端
 └── database/           # 数据库脚本
+    ├── init.sql             # 初始建表 + 种子数据
+    └── update_*.sql         # 增量迁移脚本
 ```
