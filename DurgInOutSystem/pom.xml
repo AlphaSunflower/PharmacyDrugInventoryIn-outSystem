@@ -78,6 +78,12 @@
             <version>3.0.5</version>
             <scope>test</scope>
         </dependency>
+        <!-- H2 in-memory database for testing -->
+        <dependency>
+            <groupId>com.h2database</groupId>
+            <artifactId>h2</artifactId>
+            <scope>test</scope>
+        </dependency>
         <dependency>
             <groupId>com.alibaba</groupId>
             <artifactId>easyexcel</artifactId>

@@ -2,7 +2,7 @@ import os
 import requests
 
 class APIClient:
-    BASE_URL = os.environ.get("API_BASE_URL", "http://localhost:8080/api/v1")
+    BASE_URL = os.environ.get("API_BASE_URL", "http://8.138.254.94:8080/api/v1")
 
     TIMEOUT = (5, 15)  # (connect, read) timeout in seconds
 

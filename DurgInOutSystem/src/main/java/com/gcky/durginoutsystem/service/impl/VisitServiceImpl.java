@@ -64,6 +64,34 @@ public class VisitServiceImpl implements VisitService {
         saveVisitDrugs(visit.getId(), visitDTO.getDrugs());
     }
 
+    private void validateStockAvailability(List<VisitSubmitDTO.VisitDrugDTO> drugs) {
+        // Aggregate needed quantity per drug
+        Map<Long, Integer> neededMap = new HashMap<>();
+        for (VisitSubmitDTO.VisitDrugDTO drugDTO : drugs) {
+            if (drugDTO.getQuantity() != null && drugDTO.getQuantity() > 0) {
+                neededMap.merge(drugDTO.getDrugId(), drugDTO.getQuantity(), Integer::sum);
+            }
+        }
+
+        if (neededMap.isEmpty()) return;
+
+        // Batch-check stock
+        List<Long> drugIds = new ArrayList<>(neededMap.keySet());
+        Map<Long, Drug> drugMap = drugMapper.selectBatchIds(drugIds).stream()
+                .collect(Collectors.toMap(Drug::getId, d -> d));
+
+        for (Map.Entry<Long, Integer> entry : neededMap.entrySet()) {
+            Drug drug = drugMap.get(entry.getKey());
+            if (drug == null) {
+                throw new BusinessException("药品不存在 ID: " + entry.getKey());
+            }
+            int needed = entry.getValue();
+            if (needed > drug.getStockQuantity()) {
+                throw new BusinessException("药品 [" + drug.getName() + "] 库存不足，需要 " + needed + "，当前库存 " + drug.getStockQuantity());
+            }
+        }
+    }
+
     private void saveVisitDrugs(Long visitId, List<VisitSubmitDTO.VisitDrugDTO> drugs) {
         // Batch-load all drugs upfront (eliminate N+1)
         List<Long> drugIds = drugs.stream().map(VisitSubmitDTO.VisitDrugDTO::getDrugId).distinct().collect(Collectors.toList());

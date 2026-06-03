@@ -1049,8 +1049,8 @@ class VisitHistoryView(QWidget):
                 btn.clicked.connect(lambda _, vid=visit_id: self.edit_visit(vid))
                 layout.addWidget(btn)
             
-            # 只有待发药和已退回状态可以取消
-            if status in ['SUBMITTED', 'RETURNED']:
+            # 只有已退回状态可以取消（待发药状态下不允许取消）
+            if status == 'RETURNED':
                 cancel_btn = ModernButton("取消", variant="danger")
                 cancel_btn.setFixedSize(60, 32)
                 cancel_btn.setStyleSheet(cancel_btn.styleSheet() + f"QPushButton {{ font-size: {FONT_SIZE_BASE}; padding: 0; }}")

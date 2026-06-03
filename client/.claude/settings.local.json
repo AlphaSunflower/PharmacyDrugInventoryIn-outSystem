@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(.venv/Scripts/python -m pip show pyinstaller)",
+      "Bash(.venv/Scripts/python -m pip show PyInstaller)",
+      "Bash(.venv/Scripts/pip list *)",
+      "Bash(.venv/Scripts/pip install *)",
+      "Bash(.venv/Scripts/python -m PyInstaller \"药品出入库管理系统.spec\" --clean --noconfirm)"
+    ]
+  }
+}

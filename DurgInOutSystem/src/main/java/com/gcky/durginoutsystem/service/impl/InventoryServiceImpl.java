@@ -223,6 +223,51 @@ public class InventoryServiceImpl implements InventoryService {
      * - 盘盈 (diff > 0): 增加到最新批次 (或创建新批次)
      * - 盘亏 (diff < 0): 优先扣减最早批次 (FIFO)
      */
+        /**
+     * Atomically adjust batch stock to match target actual stock.
+     * Computes diff inside FOR UPDATE lock scope, then applies adjustment,
+     * then recalculates total drug stock — all under batch-level row locks.
+     */
+    private void adjustBatchesWithDiff(Long drugId, int actualStock) {
+        // Acquire row-level locks on all batches for this drug
+        List<DrugBatch> batches = drugBatchMapper.selectBatchesForUpdate(drugId);
+
+        // Compute current total from locked batches
+        int currentTotal = batches.stream().mapToInt(DrugBatch::getStockQuantity).sum();
+        int diff = actualStock - currentTotal;
+
+        if (diff > 0) {
+            // Surplus: add to latest batch
+            DrugBatch latestBatch = drugBatchMapper.selectLatestForUpdate(drugId);
+            if (latestBatch != null) {
+                drugBatchMapper.incrementStock(latestBatch.getId(), diff);
+            } else {
+                Drug drug = drugMapper.selectById(drugId);
+                DrugBatch newBatch = new DrugBatch();
+                newBatch.setDrugId(drugId);
+                newBatch.setPrice(drug != null ? drug.getPrice() : BigDecimal.ZERO);
+                newBatch.setStockQuantity(diff);
+                newBatch.setInitialQuantity(diff);
+                newBatch.setCreatedAt(LocalDateTime.now());
+                newBatch.setBatchNo("INV_CHECK_AUTO");
+                drugBatchMapper.insert(newBatch);
+            }
+        } else if (diff < 0) {
+            // Shortage: FIFO deduction
+            int toDeduct = Math.abs(diff);
+
+            for (DrugBatch batch : batches) {
+                if (toDeduct <= 0) break;
+                int deductAmount = Math.min(batch.getStockQuantity(), toDeduct);
+                drugBatchMapper.incrementStock(batch.getId(), -deductAmount);
+                toDeduct -= deductAmount;
+            }
+        }
+
+        // Recalculate total drug stock from batch sums
+        drugStockService.updateDrugTotalStock(drugId);
+    }
+
     private void adjustBatches(Long drugId, int diff) {
         if (diff > 0) {
             // 盘盈：加行锁后原子性增加最新批次库存
