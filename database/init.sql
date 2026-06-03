@@ -245,3 +245,11 @@ create index idx_drug_id
 create index idx_visit_id
     on pharmacy_db.visit_drugs (visit_id);
 
+INSERT INTO pharmacy_db.users (username, password, real_name, role, status, created_at, machine_id)
+VALUES ('admin', '123456', '系统管理员', 'ADMIN', 1, now(), null);
+INSERT INTO pharmacy_db.users (username, password, real_name, role, status, created_at, machine_id)
+VALUES ('yaoshi', '123456', '药师', 'PHARMACIST', 1, now(), null);
+INSERT INTO pharmacy_db.users (username, password, real_name, role, status, created_at, machine_id)
+VALUES ('doctor', '123456', '医师', 'DOCTOR', 1, now(), null);
+INSERT INTO pharmacy_db.users (username, password, real_name, role, status, created_at, machine_id)
+VALUES ('root', '123456', 'root', 'ROOT', 1, now(), null);
