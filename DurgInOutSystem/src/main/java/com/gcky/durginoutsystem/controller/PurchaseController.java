@@ -7,6 +7,7 @@ import com.gcky.durginoutsystem.common.Result;
 import com.gcky.durginoutsystem.entity.Drug;
 import com.gcky.durginoutsystem.entity.DrugBatch;
 import com.gcky.durginoutsystem.entity.PurchaseDetail;
+import com.gcky.durginoutsystem.exception.BusinessException;
 import com.gcky.durginoutsystem.mapper.DrugBatchMapper;
 import com.gcky.durginoutsystem.mapper.DrugMapper;
 import com.gcky.durginoutsystem.mapper.PurchaseDetailMapper;
@@ -16,6 +17,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.Collections;
@@ -23,7 +25,6 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
-import com.gcky.durginoutsystem.annotation.RequireRole;
 
 @RequireRole({"DOCTOR", "PHARMACIST"})
 @Slf4j
@@ -58,11 +59,11 @@ public class PurchaseController {
             QueryWrapper<Drug> drugQuery = new QueryWrapper<>();
             drugQuery.like("name", drugName.trim());
             List<Drug> drugs = drugMapper.selectList(drugQuery);
-            
+
             if (drugs.isEmpty()) {
                 return Result.success(Collections.emptyList());
             }
-            
+
             List<Long> drugIds = drugs.stream().map(Drug::getId).collect(Collectors.toList());
             wrapper.in("drug_id", drugIds);
         }
@@ -95,7 +96,7 @@ public class PurchaseController {
             }
             return map;
         }).collect(Collectors.toList());
-        
+
         return Result.success(result);
     }
 
@@ -138,12 +139,80 @@ public class PurchaseController {
                 drug.setPrice(purchase.getPrice()); // 更新参考单价
                 drug.setUpdatedAt(LocalDateTime.now());
                 drugMapper.updateById(drug);
-                
+
                 // 新逻辑：重新计算所有批次总和 (确保一致性)
                 drugStockService.updateDrugTotalStock(drug.getId());
             }
         }
         return Result.success("购进登记成功，库存已更新");
+    }
+
+    // 编辑购进记录：同步更新购进明细、关联批次、药品总库存
+    @Log("编辑购进记录")
+    @PutMapping("/{id}")
+    @Transactional(rollbackFor = Exception.class)
+    public Result<String> updatePurchase(@PathVariable Long id,
+                                         @RequestBody PurchaseDetail update) {
+        // 1. 查原记录（获取旧数量与批次ID）
+        PurchaseDetail exist = purchaseMapper.selectById(id);
+        if (exist == null) {
+            throw new BusinessException("购进记录不存在");
+        }
+
+        // 2. 校验新数量（必须为正整数）
+        if (update.getQuantity() == null || update.getQuantity() <= 0) {
+            throw new BusinessException("数量必须为正整数");
+        }
+
+        // 3. 计算新单价：总金额为空时按 数量 x 单价 兜底；否则总金额 / 数量
+        BigDecimal price = update.getPrice();
+        BigDecimal totalAmount = update.getTotalAmount();
+        if (totalAmount == null) {
+            totalAmount = (price != null ? price : exist.getPrice())
+                    .multiply(new BigDecimal(update.getQuantity()));
+        }
+        if (totalAmount.compareTo(BigDecimal.ZERO) <= 0) {
+            throw new BusinessException("总金额必须大于0");
+        }
+        price = totalAmount.divide(new BigDecimal(update.getQuantity()), 2, RoundingMode.HALF_UP);
+
+        // 数量变化量：用于同步批次库存
+        int delta = update.getQuantity() - exist.getQuantity();
+
+        // 4. 更新购进明细（manufacturer 为 @TableField(exist=false)，不会落库）
+        exist.setQuantity(update.getQuantity());
+        exist.setPrice(price);
+        exist.setTotalAmount(totalAmount);
+        if (update.getPurchaseDate() != null) {
+            exist.setPurchaseDate(update.getPurchaseDate());
+        }
+        purchaseMapper.updateById(exist);
+
+        // 5. 同步关联批次：库存增减、单价、厂家、初始数量（无批次则跳过）
+        if (exist.getBatchId() != null) {
+            DrugBatch batch = drugBatchMapper.selectById(exist.getBatchId());
+            if (batch != null) {
+                int newStock = batch.getStockQuantity() + delta;
+                if (newStock < 0) {
+                    // 抛异常触发整体回滚，避免明细已改、批次未改的不一致
+                    throw new BusinessException(
+                            "数量调整后该批次库存为负（批次剩余 " + batch.getStockQuantity()
+                                    + "，调整 " + delta + "），无法修改");
+                }
+                batch.setStockQuantity(newStock);
+                batch.setInitialQuantity(update.getQuantity());
+                batch.setPrice(price);
+                if (update.getManufacturer() != null) {
+                    batch.setManufacturer(update.getManufacturer());
+                }
+                drugBatchMapper.updateById(batch);
+            }
+        }
+
+        // 6. 重算药品总库存（drugs.stock_quantity = SUM(batches) 保持一致）
+        drugStockService.updateDrugTotalStock(exist.getDrugId());
+
+        return Result.success("购进记录已更新");
     }
 
 }

@@ -2221,8 +2221,19 @@ class PurchaseView(QWidget):
             self.table.setItem(row, 7, QTableWidgetItem(item.get('manufacturer') or ''))
 
             self.table.removeCellWidget(row, 8)  # 清除可能存在的按钮
-            self.table.setItem(row, 8, QTableWidgetItem("-"))
-            self.table.item(row, 8).setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            # 已入库行：操作列提供"编辑"按钮（修改数量/金额/厂家/日期）
+            edit_btn = ModernButton("编辑", variant="outline")
+            edit_btn.setFixedSize(60, 40)
+            edit_btn.setStyleSheet(edit_btn.styleSheet() + f"font-size: {FONT_SIZE_XS}; padding: 0;")
+            edit_btn.clicked.connect(lambda _, r=row, it=item: self.edit_existing_purchase(r, it))
+
+            container = QWidget()
+            layout = QHBoxLayout(container)
+            layout.setContentsMargins(0, 0, 0, 0)
+            layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            layout.addWidget(edit_btn)
+
+            self.table.setCellWidget(row, 8, container)
             self.table.setRowHeight(row, 70)
 
     def remove_item(self, row):
@@ -2258,6 +2269,109 @@ class PurchaseView(QWidget):
                 mw.stock_changed.emit()
         else:
             ModernMessageBox.critical(self, "失败", f"提交失败: {res.json().get('message')}")
+
+    def edit_existing_purchase(self, row, item):
+        """编辑已入库的购进记录：数量/总金额/厂家/日期，单价=总金额/数量 自动计算"""
+        dialog = QDialog(self)
+        dialog.setWindowTitle(f"编辑购进记录 - {item.get('drugName', '')}")
+        dialog.setMinimumWidth(420)
+        dialog.setStyleSheet(f"background-color: {WHITE};")
+
+        form = QFormLayout(dialog)
+        form.setContentsMargins(24, 24, 24, 24)
+        form.setSpacing(14)
+
+        form.addRow("药品:", ModernLabel(item.get('drugName', ''), color=GRAY_600))
+        form.addRow("单位:", ModernLabel(item.get('unit', ''), color=GRAY_600))
+
+        qty_input = ModernInput()
+        qty_input.setText(str(item.get('quantity', '')))
+        qty_input.setToolTip("Enter 下一项")
+        form.addRow("数量:", qty_input)
+
+        amount_input = ModernInput()
+        try:
+            amount_text = f"{float(item.get('totalAmount', 0)):.2f}"
+        except (ValueError, TypeError):
+            amount_text = str(item.get('totalAmount', 0))
+        amount_input.setText(amount_text)
+        amount_input.setToolTip("Enter 下一项")
+        form.addRow("总金额:", amount_input)
+
+        # 单价自动计算（只读展示，与新增流程一致）
+        price_label = ModernLabel("", color=GRAY_600)
+
+        def recalc_price():
+            try:
+                q = float(qty_input.text())
+                a = float(amount_input.text())
+                if q > 0 and a > 0:
+                    price_label.setText(f"单价: {a / q:.2f}")
+                    return
+            except (ValueError, TypeError):
+                pass
+            price_label.setText("单价: --")
+
+        qty_input.textChanged.connect(lambda _: recalc_price())
+        amount_input.textChanged.connect(lambda _: recalc_price())
+        form.addRow("单价:", price_label)
+
+        mfr_input = ModernInput()
+        mfr_input.setText(item.get('manufacturer') or '')
+        form.addRow("生产厂家:", mfr_input)
+
+        date_edit = SmartDateEdit()
+        try:
+            date_edit.setDate(QDate.fromString(str(item.get('purchaseDate')), "yyyy-MM-dd"))
+        except Exception:
+            date_edit.setDate(QDate.currentDate())
+        form.addRow("购进日期:", date_edit)
+
+        recalc_price()
+
+        btn_layout = QHBoxLayout()
+        btn_layout.addStretch()
+        ok_btn = ModernButton("保存", variant="primary")
+        cancel_btn = ModernButton("取消", variant="secondary")
+        btn_layout.addWidget(ok_btn)
+        btn_layout.addWidget(cancel_btn)
+        form.addRow(btn_layout)
+
+        def save():
+            qty_text = qty_input.text().strip()
+            amount_text = amount_input.text().strip()
+            if not qty_text.isdigit() or int(qty_text) <= 0:
+                ModernMessageBox.warning(dialog, "提示", "请输入有效的数量")
+                return
+            try:
+                amount_val = float(amount_text)
+                if amount_val <= 0:
+                    raise ValueError
+            except (ValueError, TypeError):
+                ModernMessageBox.warning(dialog, "提示", "请输入有效的总金额")
+                return
+
+            data = {
+                "quantity": int(qty_text),
+                "totalAmount": amount_val,
+                "manufacturer": mfr_input.text().strip(),
+                "purchaseDate": date_edit.date().toString("yyyy-MM-dd"),
+            }
+            res = api_client.put(f"/purchases/{item['id']}", data=data)
+            if res.status_code == 200 and res.json().get('code') == 200:
+                dialog.accept()
+                ModernMessageBox.information(self, "成功", "购进记录已更新")
+                self.load_purchases()
+                mw = self.window()
+                if hasattr(mw, 'stock_changed'):
+                    mw.stock_changed.emit()
+            else:
+                msg = res.json().get('message') if res.json() else "未知错误"
+                ModernMessageBox.critical(dialog, "失败", f"更新失败: {msg}")
+
+        ok_btn.clicked.connect(save)
+        cancel_btn.clicked.connect(dialog.reject)
+        dialog.exec()
 
 class StatsView(QWidget):
     def __init__(self):
