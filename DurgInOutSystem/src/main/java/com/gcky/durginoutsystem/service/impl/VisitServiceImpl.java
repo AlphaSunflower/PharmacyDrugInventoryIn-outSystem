@@ -355,7 +355,7 @@ public class VisitServiceImpl implements VisitService {
             }
 
             // 同步更新 Drug 总库存 (基于所有批次的总和)
-            drugStockService.updateDrugTotalStock(drug.getId());
+            drugStockService.updateDrugTotalStock(drug.getId(), visit.getVisitDate());
         }
 
         // 2. 更新状态
@@ -383,7 +383,7 @@ public class VisitServiceImpl implements VisitService {
                 restoreToLatestBatch(vd.getDrugId(), vd.getQuantity(), vd.getPrice());
 
                 // 恢复总库存 (重新计算)
-                drugStockService.updateDrugTotalStock(vd.getDrugId());
+                drugStockService.updateDrugTotalStock(vd.getDrugId(), visit.getVisitDate());
             }
         }
         

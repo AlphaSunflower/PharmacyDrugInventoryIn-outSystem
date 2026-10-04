@@ -50,6 +50,9 @@ mysql -u root -p drug_in_out < database/init.sql
 ```bash
 # 1. 后端
 cd DurgInOutSystem
+
+# 需要 JDK 25
+export JAVA_TOOL_OPTIONS="-Xms128m -Xmx512m -XX:MaxMetaspaceSize=192m -XX:MaxDirectMemorySize=128m -XX:+UseG1GC"
 ./mvnw spring-boot:run
 
 # 2. 客户端

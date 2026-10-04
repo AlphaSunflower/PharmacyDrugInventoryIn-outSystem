@@ -14,11 +14,13 @@ import com.gcky.durginoutsystem.mapper.InventoryCheckDetailMapper;
 import com.gcky.durginoutsystem.mapper.InventoryCheckTaskMapper;
 import com.gcky.durginoutsystem.service.DrugStockService;
 import com.gcky.durginoutsystem.service.InventoryService;
+import com.gcky.durginoutsystem.service.PendingInventorySnapshotService;
 import org.springframework.beans.BeanUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.Collections;
 import java.util.HashMap;
@@ -39,6 +41,8 @@ public class InventoryServiceImpl implements InventoryService {
     private DrugBatchMapper drugBatchMapper;
     @Autowired
     private DrugStockService drugStockService;
+    @Autowired
+    private PendingInventorySnapshotService pendingInventorySnapshotService;
 
     @Override
     @Transactional(rollbackFor = Exception.class)
@@ -48,6 +52,9 @@ public class InventoryServiceImpl implements InventoryService {
         wrapper.eq("month", month);
         InventoryCheckTask exist = taskMapper.selectOne(wrapper);
         if (exist != null) {
+            if ("PENDING".equals(exist.getStatus())) {
+                pendingInventorySnapshotService.syncTaskSnapshot(exist.getId());
+            }
             return exist.getId();
         }
 
@@ -75,6 +82,8 @@ public class InventoryServiceImpl implements InventoryService {
 
     @Override
     public List<Map<String, Object>> getTaskDetails(Long taskId) {
+        pendingInventorySnapshotService.syncTaskSnapshot(taskId);
+
         QueryWrapper<InventoryCheckDetail> wrapper = new QueryWrapper<>();
         wrapper.eq("task_id", taskId);
         List<InventoryCheckDetail> details = detailMapper.selectList(wrapper);
@@ -93,6 +102,7 @@ public class InventoryServiceImpl implements InventoryService {
             map.put("actualStock", d.getActualStock());
             map.put("discrepancy", d.getDiscrepancy());
             map.put("remark", d.getRemark());
+            map.put("logContent", d.getLogContent());
             Drug drug = drugMap.get(d.getDrugId());
             map.put("drugName", drug != null ? drug.getName() : "Unknown");
             map.put("drugSpec", drug != null ? drug.getSpec() : "");
@@ -102,12 +112,15 @@ public class InventoryServiceImpl implements InventoryService {
 
     @Override
     @Transactional(rollbackFor = Exception.class)
-    public void updateDetail(Long detailId, Integer actualStock, String remark) {
+    public void updateDetail(Long detailId, Integer actualStock, String remark, boolean clearLog) {
         InventoryCheckDetail detail = detailMapper.selectById(detailId);
         if (detail == null) return;
         
         detail.setActualStock(actualStock);
         detail.setRemark(remark);
+        if (clearLog && actualStock != null) {
+            detail.setLogContent(null);
+        }
         // 计算差异 = 实盘 - 账面
         if (actualStock != null) {
             detail.setDiscrepancy(actualStock - detail.getSystemStock());
@@ -184,6 +197,29 @@ public class InventoryServiceImpl implements InventoryService {
             throw new BusinessException("还有药品未正确填写实盘数量，无法提交任务");
         }
 
+        List<InventoryCheckDetail> changedDetails = detailMapper.selectList(
+                new QueryWrapper<InventoryCheckDetail>()
+                        .eq("task_id", taskId)
+                        .isNotNull("log_content")
+                        .ne("log_content", ""));
+        if (!changedDetails.isEmpty()) {
+            List<Long> changedDrugIds = changedDetails.stream()
+                    .map(InventoryCheckDetail::getDrugId)
+                    .distinct()
+                    .collect(Collectors.toList());
+            Map<Long, Drug> changedDrugMap = changedDrugIds.isEmpty() ? Collections.emptyMap() :
+                    drugMapper.selectBatchIds(changedDrugIds).stream()
+                            .collect(Collectors.toMap(Drug::getId, drug -> drug));
+            String names = changedDetails.stream()
+                    .map(detail -> {
+                        Drug drug = changedDrugMap.get(detail.getDrugId());
+                        return drug != null ? drug.getName() : "药品ID " + detail.getDrugId();
+                    })
+                    .distinct()
+                    .collect(Collectors.joining("、"));
+            throw new BusinessException("以下药品系统库存发生改变，请重新核实库存数量：" + names);
+        }
+
         // 2. 更新任务状态
         InventoryCheckTask task = new InventoryCheckTask();
         task.setId(taskId);
@@ -211,7 +247,8 @@ public class InventoryServiceImpl implements InventoryService {
                         adjustBatches(drug.getId(), diff);
                     }
 
-                    drugStockService.updateDrugTotalStock(drug.getId());
+                    drugStockService.updateDrugTotalStock(
+                            drug.getId(), LocalDate.parse(existing.getMonth() + "-01"));
                 }
             }
         }

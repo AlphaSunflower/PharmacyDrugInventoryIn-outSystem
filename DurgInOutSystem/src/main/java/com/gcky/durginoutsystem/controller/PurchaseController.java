@@ -135,13 +135,8 @@ public class PurchaseController {
             // 3. 更新药品总库存和最新进价
             Drug drug = drugMapper.selectById(purchase.getDrugId());
             if (drug != null) {
-                // drug.setStockQuantity(drug.getStockQuantity() + purchase.getQuantity()); // 旧逻辑：累加
-                drug.setPrice(purchase.getPrice()); // 更新参考单价
-                drug.setUpdatedAt(LocalDateTime.now());
-                drugMapper.updateById(drug);
-
-                // 新逻辑：重新计算所有批次总和 (确保一致性)
-                drugStockService.updateDrugTotalStock(drug.getId());
+                // 重新计算总库存和当前映射价格，确保与 FIFO 批次一致
+                drugStockService.updateDrugTotalStock(drug.getId(), purchase.getPurchaseDate());
             }
         }
         return Result.success("购进登记成功，库存已更新");
@@ -158,6 +153,7 @@ public class PurchaseController {
         if (exist == null) {
             throw new BusinessException("购进记录不存在");
         }
+        LocalDate oldPurchaseDate = exist.getPurchaseDate();
 
         // 2. 校验新数量（必须为正整数）
         if (update.getQuantity() == null || update.getQuantity() <= 0) {
@@ -210,7 +206,8 @@ public class PurchaseController {
         }
 
         // 6. 重算药品总库存（drugs.stock_quantity = SUM(batches) 保持一致）
-        drugStockService.updateDrugTotalStock(exist.getDrugId());
+        drugStockService.updateDrugTotalStock(
+                exist.getDrugId(), exist.getPurchaseDate(), oldPurchaseDate);
 
         return Result.success("购进记录已更新");
     }

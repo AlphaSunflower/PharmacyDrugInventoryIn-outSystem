@@ -144,6 +144,7 @@ public class StatsController {
             vo.setActualStock((Integer) row.get("actualStock"));
             vo.setDiscrepancy((Integer) row.get("discrepancy"));
             vo.setRemark((String) row.get("remark"));
+            vo.setLogContent((String) row.get("logContent"));
             excelList.add(vo);
         }
         setExcelResponse(response, "库存盘点报表_" + month);
@@ -229,6 +230,8 @@ public class StatsController {
             vo.setVisitCount((Integer) map.get("visitCount"));
             vo.setPrescriptionAmount((BigDecimal) map.get("prescriptionAmount"));
             vo.setTraumaAmount((BigDecimal) map.get("traumaAmount"));
+            vo.setPreparedMedicineAmount((BigDecimal) map.get("preparedMedicineAmount"));
+            vo.setPreparedMedicineQuantity((Integer) map.get("preparedMedicineQuantity"));
             if (map.containsKey("leaderMedicineAmount")) {
                 vo.setLeaderMedicineAmount((BigDecimal) map.get("leaderMedicineAmount"));
                 vo.setInitialStockAmount((BigDecimal) map.get("initialStockAmount"));
@@ -256,6 +259,8 @@ public class StatsController {
             vo.setVisitCount((Integer) map.get("visitCount"));
             vo.setPrescriptionAmount((BigDecimal) map.get("prescriptionAmount"));
             vo.setTraumaAmount((BigDecimal) map.get("traumaAmount"));
+            vo.setPreparedMedicineAmount((BigDecimal) map.get("preparedMedicineAmount"));
+            vo.setPreparedMedicineQuantity((Integer) map.get("preparedMedicineQuantity"));
             if (map.containsKey("leaderMedicineAmount")) {
                 vo.setLeaderMedicineAmount((BigDecimal) map.get("leaderMedicineAmount"));
                 vo.setInitialStockAmount((BigDecimal) map.get("initialStockAmount"));

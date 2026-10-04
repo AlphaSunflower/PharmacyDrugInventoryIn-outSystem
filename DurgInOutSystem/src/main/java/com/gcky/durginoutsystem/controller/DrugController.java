@@ -7,9 +7,12 @@ import com.gcky.durginoutsystem.annotation.RequireRole;
 import com.gcky.durginoutsystem.common.Result;
 import com.gcky.durginoutsystem.entity.Drug;
 import com.gcky.durginoutsystem.entity.DrugBatch;
+import com.gcky.durginoutsystem.entity.PurchaseDetail;
 import com.gcky.durginoutsystem.entity.VisitDrug;
+import com.gcky.durginoutsystem.exception.BusinessException;
 import com.gcky.durginoutsystem.mapper.DrugBatchMapper;
 import com.gcky.durginoutsystem.mapper.DrugMapper;
+import com.gcky.durginoutsystem.mapper.PurchaseDetailMapper;
 import com.gcky.durginoutsystem.mapper.VisitDrugMapper;
 import com.gcky.durginoutsystem.service.DrugBatchService;
 import com.gcky.durginoutsystem.service.DrugStockService;
@@ -17,6 +20,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.Collections;
@@ -32,17 +36,20 @@ public class DrugController {
     private final DrugMapper drugMapper;
     private final DrugBatchService drugBatchService;
     private final DrugBatchMapper drugBatchMapper;
+    private final PurchaseDetailMapper purchaseDetailMapper;
     private final DrugStockService drugStockService;
     private final VisitDrugMapper visitDrugMapper;
 
     public DrugController(DrugMapper drugMapper,
                           DrugBatchService drugBatchService,
                           DrugBatchMapper drugBatchMapper,
+                          PurchaseDetailMapper purchaseDetailMapper,
                           DrugStockService drugStockService,
                           VisitDrugMapper visitDrugMapper) {
         this.drugMapper = drugMapper;
         this.drugBatchService = drugBatchService;
         this.drugBatchMapper = drugBatchMapper;
+        this.purchaseDetailMapper = purchaseDetailMapper;
         this.drugStockService = drugStockService;
         this.visitDrugMapper = visitDrugMapper;
     }
@@ -121,10 +128,16 @@ public class DrugController {
     // 修改批次信息（生产厂家等）
     @Log("修改批次信息")
     @PutMapping("/batch/{batchId}")
+    @Transactional(rollbackFor = Exception.class)
     public Result<String> updateBatch(@PathVariable Long batchId, @RequestBody Map<String, Object> body) {
         DrugBatch batch = drugBatchMapper.selectById(batchId);
         if (batch == null) {
             return Result.error(404, "批次不存在");
+        }
+        BigDecimal batchPrice = null;
+        if (body.containsKey("price")) {
+            batchPrice = parsePrice(body.get("price"));
+            batch.setPrice(batchPrice);
         }
         if (body.containsKey("manufacturer")) {
             batch.setManufacturer((String) body.get("manufacturer"));
@@ -142,7 +155,41 @@ public class DrugController {
             }
         }
         drugBatchMapper.updateById(batch);
+
+        if (batchPrice != null) {
+            List<PurchaseDetail> purchases = purchaseDetailMapper.selectList(
+                    new QueryWrapper<PurchaseDetail>().eq("batch_id", batchId));
+            for (PurchaseDetail purchase : purchases) {
+                purchase.setPrice(batchPrice);
+                int quantity = purchase.getQuantity() != null ? purchase.getQuantity() : 0;
+                purchase.setTotalAmount(batchPrice.multiply(BigDecimal.valueOf(quantity))
+                        .setScale(2, RoundingMode.HALF_UP));
+                purchaseDetailMapper.updateById(purchase);
+            }
+            drugStockService.updateDrugTotalStock(batch.getDrugId(), LocalDate.now());
+        }
         return Result.success("批次信息更新成功");
+    }
+
+    private BigDecimal parsePrice(Object value) {
+        BigDecimal price;
+        if (value instanceof BigDecimal decimal) {
+            price = decimal;
+        } else if (value instanceof Number number) {
+            price = new BigDecimal(number.toString());
+        } else if (value instanceof String text && !text.isBlank()) {
+            try {
+                price = new BigDecimal(text.trim());
+            } catch (NumberFormatException ex) {
+                throw new BusinessException("批次进价格式不正确");
+            }
+        } else {
+            throw new BusinessException("批次进价不能为空");
+        }
+        if (price.compareTo(BigDecimal.ZERO) < 0) {
+            throw new BusinessException("批次进价不能小于0");
+        }
+        return price.setScale(2, RoundingMode.HALF_UP);
     }
 
     @Log("修改批次库存")
@@ -157,7 +204,7 @@ public class DrugController {
         drugBatchMapper.updateById(batch);
 
         // 同步更新总库存
-        drugStockService.updateDrugTotalStock(batch.getDrugId());
+        drugStockService.updateDrugTotalStock(batch.getDrugId(), LocalDate.now());
 
         return Result.success("库存更新成功");
     }
@@ -191,8 +238,13 @@ public class DrugController {
             }
         }
         
+        // 修改药品时价格只由批次库存逻辑映射，不接受手动覆盖
+        drug.setPrice(null);
         drug.setUpdatedAt(LocalDateTime.now());
         drugMapper.updateById(drug);
+        if (drug.getStockQuantity() != null) {
+            drugStockService.updateDrugTotalStock(id, LocalDate.now());
+        }
         return Result.success("药品信息更新成功");
     }
 
