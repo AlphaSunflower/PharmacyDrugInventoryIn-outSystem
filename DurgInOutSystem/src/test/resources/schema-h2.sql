@@ -51,7 +51,8 @@ CREATE TABLE IF NOT EXISTS visit_drugs (
 
 CREATE TABLE IF NOT EXISTS diagnosis_types (
     id BIGINT AUTO_INCREMENT PRIMARY KEY,
-    name VARCHAR(100) NOT NULL
+    name VARCHAR(100) NOT NULL,
+    remark VARCHAR(500)
 );
 
 CREATE TABLE IF NOT EXISTS users (
@@ -81,7 +82,8 @@ CREATE TABLE IF NOT EXISTS inventory_check_details (
     actual_stock INT,
     discrepancy INT,
     actual_amount DECIMAL(10,2),
-    remark VARCHAR(500)
+    remark VARCHAR(500),
+    log_content VARCHAR(500)
 );
 
 CREATE TABLE IF NOT EXISTS purchase_plans (
@@ -119,7 +121,8 @@ CREATE TABLE IF NOT EXISTS purchase_details (
 CREATE TABLE IF NOT EXISTS operation_logs (
     id BIGINT AUTO_INCREMENT PRIMARY KEY,
     user_id BIGINT,
-    operation VARCHAR(200),
+    action VARCHAR(200),
+    role VARCHAR(50),
     operate_data VARCHAR(500),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );

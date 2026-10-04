@@ -72,6 +72,7 @@ create table pharmacy_db.inventory_check_details
     discrepancy   int            null comment '差异数量 (实际 - 理论)',
     remark        varchar(255)   null comment '备注',
     actual_amount decimal(10, 2) null comment '期末实盘金额',
+    log_content   varchar(255)   null comment '盘点日志内容',
     constraint inventory_check_details_ibfk_1
         foreign key (task_id) references pharmacy_db.inventory_check_tasks (id),
     constraint inventory_check_details_ibfk_2

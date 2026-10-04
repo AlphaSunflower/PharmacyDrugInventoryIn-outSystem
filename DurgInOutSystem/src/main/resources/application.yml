@@ -1,5 +1,5 @@
 server:
-  port: 8080
+  port: 9876
 spring:
   application:
     name: DurgInOutSystem
@@ -22,4 +22,4 @@ mybatis-plus:
 
 logging:
   level:
-    com.gcky.durginoutsystem.mapper: debug
+    com.gcky.durginoutsystem.mapper: info

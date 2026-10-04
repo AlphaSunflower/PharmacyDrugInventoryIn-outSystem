@@ -637,8 +637,8 @@ class InventoryView(QWidget):
         
         # 盘点明细表格
         self.table = ModernTable()
-        self.table.setColumnCount(7)
-        self.table.setHorizontalHeaderLabels(["ID", "药品名称", "规格", "系统库存", "实盘数量", "差异", "备注"])
+        self.table.setColumnCount(8)
+        self.table.setHorizontalHeaderLabels(["ID", "药品名称", "规格", "系统库存", "实盘数量", "差异", "备注", "日志内容"])
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         self.table.cellChanged.connect(self.on_cell_changed)
         self.table.cellDoubleClicked.connect(self.on_cell_double_clicked)
@@ -818,6 +818,12 @@ class InventoryView(QWidget):
                  remark_item.setText("点击填写")
                  remark_item.setForeground(QColor(GRAY_400))
             self.table.setItem(r, 6, remark_item)
+
+            log_item = QTableWidgetItem(item.get('logContent') or "")
+            log_item.setFlags(log_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+            if item.get('logContent'):
+                log_item.setForeground(QColor(ERROR_COLOR))
+            self.table.setItem(r, 7, log_item)
             
             self.table.item(r, 0).setData(Qt.ItemDataRole.UserRole, detail_id)
             self.table.setRowHeight(r, 50)
@@ -873,7 +879,8 @@ class InventoryView(QWidget):
 
         data = {
             "actualStock": actual_val,
-            "remark": remark
+            "remark": remark,
+            "clearLog": col == 4 and actual_val is not None
         }
         api_client.put(f"/inventory-checks/details/{detail_id}", data)
         sys_stock = int(self.table.item(row, 3).text())
@@ -896,6 +903,10 @@ class InventoryView(QWidget):
             
         if remark:
             remark_item.setForeground(QColor(BLACK))
+        if data["clearLog"]:
+            log_item = QTableWidgetItem("")
+            log_item.setFlags(log_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+            self.table.setItem(row, 7, log_item)
             
         self.table.blockSignals(False)
 
@@ -921,6 +932,19 @@ class InventoryView(QWidget):
         if invalid_rows:
             msg = "以下药品的实盘数量未正确填写，请修正后再提交：\n\n" + "\n".join(invalid_rows)
             ModernMessageBox.warning(self, "数据不完整", msg)
+            return
+
+        changed_rows = []
+        for r in range(self.table.rowCount()):
+            log_item = self.table.item(r, 7)
+            if log_item and log_item.text().strip():
+                drug_name = self.table.item(r, 1).text() if self.table.item(r, 1) else "未知"
+                changed_rows.append(f"  · {drug_name}：请重新核实库存数量")
+        if changed_rows:
+            ModernMessageBox.warning(
+                self, "需要重新核实",
+                "以下药品的系统库存发生变化，请重新保存实盘数量后再完成：\n\n"
+                + "\n".join(changed_rows))
             return
 
         # 二次确认
@@ -1618,19 +1642,22 @@ class DrugManageView(QWidget):
     def show_drug_dialog(self, title, drug=None):
         dialog = QDialog(self)
         dialog.setWindowTitle(title)
-        dialog.setFixedSize(400, 460)
+        dialog.setFixedSize(440, 600)
         dialog.setStyleSheet(f"background-color: {WHITE};")
         
         layout = QVBoxLayout(dialog)
-        layout.setContentsMargins(20, 20, 20, 20)
+        layout.setContentsMargins(24, 24, 24, 24)
+        layout.setSpacing(18)
         
         form_layout = QFormLayout()
-        form_layout.setSpacing(15)
+        form_layout.setHorizontalSpacing(14)
+        form_layout.setVerticalSpacing(18)
         
         name_edit = ModernInput(placeholder="请输入名称")
         spec_edit = ModernInput(placeholder="请输入规格")
         unit_edit = ModernInput(placeholder="请输入单位")
         price_edit = ModernInput(placeholder="请输入价格")
+        batch_price_edit = ModernInput(placeholder="请输入批次进价")
         manufacturer_edit = ModernInput(placeholder="请输入生产厂家")
 
         if drug:
@@ -1638,11 +1665,15 @@ class DrugManageView(QWidget):
             spec_edit.setText(drug['spec'])
             unit_edit.setText(drug['unit'])
             price_edit.setText(str(drug['price']))
+            price_edit.setReadOnly(True)
+            price_edit.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+            price_edit.setToolTip("药品价格由批次进价按库存顺序自动映射，不可手动修改")
 
         stock_edit = None
         batch_combo = None
         current_batch_id = None
         current_manufacturer = None
+        current_batch_price = None
 
         if drug:
             stock_edit = ModernInput(placeholder="请输入库存")
@@ -1658,32 +1689,43 @@ class DrugManageView(QWidget):
                     b = batch_combo.itemData(index)
                     stock_edit.setText(str(b['stockQuantity']))
                     manufacturer_edit.setText(b.get('manufacturer') or '')
+                    batch_price_edit.setText(str(b.get('price', 0)))
 
                 batch_combo.currentIndexChanged.connect(on_batch_changed)
                 if batches:
                     stock_edit.setText(str(batches[0]['stockQuantity']))
                     manufacturer_edit.setText(batches[0].get('manufacturer') or '')
+                    batch_price_edit.setText(str(batches[0].get('price', 0)))
 
             elif len(batches) == 1:
                 current_batch_id = batches[0]['id']
                 stock_edit.setText(str(batches[0]['stockQuantity']))
                 current_manufacturer = batches[0].get('manufacturer') or ''
+                current_batch_price = float(batches[0].get('price', 0) or 0)
                 manufacturer_edit.setText(current_manufacturer)
+                batch_price_edit.setText(str(batches[0].get('price', 0)))
             else:
                 stock_edit.setText(str(drug.get('stockQuantity', 0)))
 
         form_layout.addRow(ModernLabel("名称:"), name_edit)
         form_layout.addRow(ModernLabel("规格:"), spec_edit)
         form_layout.addRow(ModernLabel("单位:"), unit_edit)
-        form_layout.addRow(ModernLabel("价格:"), price_edit)
+        form_layout.addRow(ModernLabel("当前价格:" if drug else "价格:"), price_edit)
         if drug:
             if batch_combo:
                 form_layout.addRow(ModernLabel("选择批次:"), batch_combo)
+            if batch_combo or current_batch_id:
+                form_layout.addRow(ModernLabel("批次进价:"), batch_price_edit)
         form_layout.addRow(ModernLabel("生产厂家:"), manufacturer_edit)
         if drug:
             form_layout.addRow(ModernLabel("库存:"), stock_edit)
             
         layout.addLayout(form_layout)
+
+        for input_widget in (name_edit, spec_edit, unit_edit, price_edit,
+                             batch_price_edit, manufacturer_edit, stock_edit, batch_combo):
+            if input_widget is not None:
+                input_widget.setMinimumHeight(44)
         
         btn_box = QHBoxLayout()
         save_btn = ModernButton("保存", variant="primary")
@@ -1697,17 +1739,30 @@ class DrugManageView(QWidget):
         cancel_btn.clicked.connect(dialog.reject)
         
         def save():
-            try:
-                price = float(price_edit.text() or 0)
-            except ValueError:
-                ModernMessageBox.warning(dialog, "输入错误", "请输入有效的价格数字")
-                return
+            price = None
+            if not drug:
+                try:
+                    price = float(price_edit.text() or 0)
+                except ValueError:
+                    ModernMessageBox.warning(dialog, "输入错误", "请输入有效的价格数字")
+                    return
+            batch_price = None
+            if drug and (batch_combo or current_batch_id):
+                try:
+                    batch_price = float(batch_price_edit.text() or 0)
+                except ValueError:
+                    ModernMessageBox.warning(dialog, "输入错误", "请输入有效的批次进价")
+                    return
+                if batch_price < 0:
+                    ModernMessageBox.warning(dialog, "输入错误", "批次进价不能小于0")
+                    return
             data = {
                 "name": name_edit.text(),
                 "spec": spec_edit.text(),
-                "unit": unit_edit.text(),
-                "price": price
+                "unit": unit_edit.text()
             }
+            if price is not None:
+                data["price"] = price
 
             stock_updated_via_batch = False
 
@@ -1787,24 +1842,39 @@ class DrugManageView(QWidget):
                     return
 
             if drug:
+                target_bid = batch_combo.currentData()['id'] if batch_combo else (current_batch_id or None)
+                batch_update_data = {}
+                if target_bid:
+                    old_batch_price = current_batch_price
+                    if batch_combo:
+                        selected_batch = batch_combo.currentData()
+                        old_batch_price = float(selected_batch.get('price', 0) or 0)
+                    if batch_price is not None and abs(batch_price - old_batch_price) > 0.0001:
+                        batch_update_data["price"] = batch_price
+
+                    new_mfr = manufacturer_edit.text().strip()
+                    old_mfr = None
+                    for b in drug.get('batchList', []):
+                        if b['id'] == target_bid:
+                            old_mfr = b.get('manufacturer') or ''
+                            break
+                    if new_mfr != old_mfr:
+                        batch_update_data["manufacturer"] = new_mfr
+
+                if batch_update_data:
+                    res_batch = api_client.put(f"/drugs/batch/{target_bid}", data=batch_update_data)
+                    if res_batch.status_code != 200 or res_batch.json().get('code') != 200:
+                        ModernMessageBox.critical(
+                            dialog, "失败",
+                            f"更新批次信息失败: {res_batch.json().get('message')}")
+                        return
+
                 res = api_client.put(f"/drugs/{drug['id']}", data)
             else:
                 data["manufacturer"] = manufacturer_edit.text().strip()
                 res = api_client.post("/drugs", data)
 
             if res.status_code == 200 and res.json()['code'] == 200:
-                # 编辑模式：更新批次厂家
-                if drug:
-                    new_mfr = manufacturer_edit.text().strip()
-                    target_bid = batch_combo.currentData()['id'] if batch_combo else (current_batch_id or None)
-                    old_mfr = None
-                    if target_bid:
-                        for b in drug.get('batchList', []):
-                            if b['id'] == target_bid:
-                                old_mfr = b.get('manufacturer') or ''
-                                break
-                    if target_bid and new_mfr != old_mfr:
-                        api_client.put(f"/drugs/batch/{target_bid}", data={"manufacturer": new_mfr})
                 ModernMessageBox.information(dialog, "成功", "保存成功")
                 dialog.accept()
                 self.load_data()
@@ -2457,8 +2527,8 @@ class StatsView(QWidget):
         inv_layout = QVBoxLayout(self.inv_check_container)
         inv_layout.setContentsMargins(SPACING_LG_INT, SPACING_LG_INT, SPACING_LG_INT, SPACING_LG_INT)
         self.inv_check_table = ModernTable()
-        self.inv_check_table.setColumnCount(6)
-        self.inv_check_table.setHorizontalHeaderLabels(["药品名称", "规格", "系统库存", "实盘数量", "差异", "备注"])
+        self.inv_check_table.setColumnCount(7)
+        self.inv_check_table.setHorizontalHeaderLabels(["药品名称", "规格", "系统库存", "实盘数量", "差异", "备注", "日志内容"])
         self.inv_check_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         inv_layout.addWidget(self.inv_check_table)
         self.inv_check_warning = ModernLabel("", color=ERROR_COLOR)
@@ -2494,16 +2564,16 @@ class StatsView(QWidget):
         self.drug_stats_tab.setColumnCount(6)
         self.drug_stats_tab.setHorizontalHeaderLabels(["药品", "规格", "期初", "本月购进", "本月使用", "期末"])
         
-        self.monthly_summary_tab.setColumnCount(8)
+        self.monthly_summary_tab.setColumnCount(10)
         self.monthly_summary_tab.setHorizontalHeaderLabels([
-            "部门", "接诊人数", "处方开出金额", "外伤处理金额", 
+            "部门", "接诊人数", "处方开出金额", "外伤处理金额", "备药金额", "备药数量",
             "领导拿药金额", "期初库存金额", "药品采购总金额", "期末库存金额"
         ])
         self.monthly_summary_tab.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
 
-        self.yearly_summary_tab.setColumnCount(8)
+        self.yearly_summary_tab.setColumnCount(10)
         self.yearly_summary_tab.setHorizontalHeaderLabels([
-            "部门", "接诊人数", "处方开出金额", "外伤处理金额", 
+            "部门", "接诊人数", "处方开出金额", "外伤处理金额", "备药金额", "备药数量",
             "领导拿药金额", "期初库存金额", "药品采购总金额", "期末库存金额"
         ])
         self.yearly_summary_tab.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
@@ -2793,31 +2863,33 @@ class StatsView(QWidget):
                 self.monthly_summary_tab.setItem(r, 1, QTableWidgetItem(str(item.get('visitCount'))))
                 self.monthly_summary_tab.setItem(r, 2, QTableWidgetItem(f"{item.get('prescriptionAmount'):.2f}"))
                 self.monthly_summary_tab.setItem(r, 3, QTableWidgetItem(f"{item.get('traumaAmount'):.2f}"))
+                self.monthly_summary_tab.setItem(r, 4, QTableWidgetItem(f"{item.get('preparedMedicineAmount', 0):.2f}"))
+                self.monthly_summary_tab.setItem(r, 5, QTableWidgetItem(str(item.get('preparedMedicineQuantity', 0))))
                 
                 # Global columns
                 if r == 0:
-                    self.monthly_summary_tab.setItem(r, 4, QTableWidgetItem(f"{leader_amt:.2f}"))
-                    self.monthly_summary_tab.setItem(r, 5, QTableWidgetItem(f"{init_stock:.2f}"))
-                    self.monthly_summary_tab.setItem(r, 6, QTableWidgetItem(f"{purchase_amt:.2f}"))
-                    self.monthly_summary_tab.setItem(r, 7, QTableWidgetItem(f"{final_stock:.2f}"))
+                    self.monthly_summary_tab.setItem(r, 6, QTableWidgetItem(f"{leader_amt:.2f}"))
+                    self.monthly_summary_tab.setItem(r, 7, QTableWidgetItem(f"{init_stock:.2f}"))
+                    self.monthly_summary_tab.setItem(r, 8, QTableWidgetItem(f"{purchase_amt:.2f}"))
+                    self.monthly_summary_tab.setItem(r, 9, QTableWidgetItem(f"{final_stock:.2f}"))
                 else:
-                    self.monthly_summary_tab.setItem(r, 4, QTableWidgetItem(""))
-                    self.monthly_summary_tab.setItem(r, 5, QTableWidgetItem(""))
                     self.monthly_summary_tab.setItem(r, 6, QTableWidgetItem(""))
                     self.monthly_summary_tab.setItem(r, 7, QTableWidgetItem(""))
+                    self.monthly_summary_tab.setItem(r, 8, QTableWidgetItem(""))
+                    self.monthly_summary_tab.setItem(r, 9, QTableWidgetItem(""))
 
             # 设置对齐和合并
             if len(rows) > 0:
-                for c in range(4, 8):
+                for c in range(6, 10):
                     item = self.monthly_summary_tab.item(0, c)
                     if item:
                         item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
                         
                 if len(rows) > 1:
-                    self.monthly_summary_tab.setSpan(0, 4, len(rows), 1)
-                    self.monthly_summary_tab.setSpan(0, 5, len(rows), 1)
                     self.monthly_summary_tab.setSpan(0, 6, len(rows), 1)
                     self.monthly_summary_tab.setSpan(0, 7, len(rows), 1)
+                    self.monthly_summary_tab.setSpan(0, 8, len(rows), 1)
+                    self.monthly_summary_tab.setSpan(0, 9, len(rows), 1)
 
             for r in range(len(rows)):
                 self.monthly_summary_tab.setRowHeight(r, 50)
@@ -2860,6 +2932,8 @@ class StatsView(QWidget):
                 self.yearly_summary_tab.setItem(r, 1, QTableWidgetItem(str(item.get('visitCount'))))
                 self.yearly_summary_tab.setItem(r, 2, QTableWidgetItem(f"{item.get('prescriptionAmount'):.2f}"))
                 self.yearly_summary_tab.setItem(r, 3, QTableWidgetItem(f"{item.get('traumaAmount'):.2f}"))
+                self.yearly_summary_tab.setItem(r, 4, QTableWidgetItem(f"{item.get('preparedMedicineAmount', 0):.2f}"))
+                self.yearly_summary_tab.setItem(r, 5, QTableWidgetItem(str(item.get('preparedMedicineQuantity', 0))))
                 
                 if r == 0:
                     leader_item = QTableWidgetItem(f"{leader_amt:.2f}")
@@ -2876,27 +2950,27 @@ class StatsView(QWidget):
                         final_item.setForeground(QColor(WARNING_COLOR))
                         final_item.setToolTip(f"缺失月份：{', '.join(missing_months)}")
 
-                    self.yearly_summary_tab.setItem(r, 4, leader_item)
-                    self.yearly_summary_tab.setItem(r, 5, init_item)
-                    self.yearly_summary_tab.setItem(r, 6, purchase_item)
-                    self.yearly_summary_tab.setItem(r, 7, final_item)
+                    self.yearly_summary_tab.setItem(r, 6, leader_item)
+                    self.yearly_summary_tab.setItem(r, 7, init_item)
+                    self.yearly_summary_tab.setItem(r, 8, purchase_item)
+                    self.yearly_summary_tab.setItem(r, 9, final_item)
                 else:
-                    self.yearly_summary_tab.setItem(r, 4, QTableWidgetItem(""))
-                    self.yearly_summary_tab.setItem(r, 5, QTableWidgetItem(""))
                     self.yearly_summary_tab.setItem(r, 6, QTableWidgetItem(""))
                     self.yearly_summary_tab.setItem(r, 7, QTableWidgetItem(""))
+                    self.yearly_summary_tab.setItem(r, 8, QTableWidgetItem(""))
+                    self.yearly_summary_tab.setItem(r, 9, QTableWidgetItem(""))
 
             if len(rows) > 0:
-                for c in range(4, 8):
+                for c in range(6, 10):
                     item = self.yearly_summary_tab.item(0, c)
                     if item:
                         item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
                         
                 if len(rows) > 1:
-                    self.yearly_summary_tab.setSpan(0, 4, len(rows), 1)
-                    self.yearly_summary_tab.setSpan(0, 5, len(rows), 1)
                     self.yearly_summary_tab.setSpan(0, 6, len(rows), 1)
                     self.yearly_summary_tab.setSpan(0, 7, len(rows), 1)
+                    self.yearly_summary_tab.setSpan(0, 8, len(rows), 1)
+                    self.yearly_summary_tab.setSpan(0, 9, len(rows), 1)
 
             for r in range(len(rows)):
                 self.yearly_summary_tab.setRowHeight(r, 50)
@@ -2935,6 +3009,10 @@ class StatsView(QWidget):
                 diff_item.setForeground(QColor(ERROR_COLOR))
             self.inv_check_table.setItem(r, 4, diff_item)
             self.inv_check_table.setItem(r, 5, QTableWidgetItem(str(d.get('remark', ''))))
+            log_item = QTableWidgetItem(str(d.get('logContent', '')))
+            if d.get('logContent'):
+                log_item.setForeground(QColor(ERROR_COLOR))
+            self.inv_check_table.setItem(r, 6, log_item)
             self.inv_check_table.setRowHeight(r, 50)
 
     def _export_inv_check(self):

@@ -22,4 +22,7 @@ public class InventoryCheckExcel {
 
     @ExcelProperty("备注")
     private String remark;
+
+    @ExcelProperty("日志内容")
+    private String logContent;
 }

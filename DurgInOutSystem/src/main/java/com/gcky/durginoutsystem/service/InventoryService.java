@@ -9,7 +9,7 @@ import java.util.Map;
 public interface InventoryService {
     Long generateTask(String month);
     List<Map<String, Object>> getTaskDetails(Long taskId);
-    void updateDetail(Long detailId, Integer actualStock, String remark);
+    void updateDetail(Long detailId, Integer actualStock, String remark, boolean clearLog);
     void completeTask(Long taskId);
     
     void reopenTask(Long taskId);

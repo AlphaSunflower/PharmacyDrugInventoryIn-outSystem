@@ -38,7 +38,8 @@ public class InventoryController {
     public Result<String> updateDetail(@PathVariable Long detailId, @RequestBody Map<String, Object> body) {
         Integer actualStock = (Integer) body.get("actualStock");
         String remark = (String) body.get("remark");
-        inventoryService.updateDetail(detailId, actualStock, remark);
+        boolean clearLog = Boolean.TRUE.equals(body.get("clearLog"));
+        inventoryService.updateDetail(detailId, actualStock, remark, clearLog);
         return Result.success("录入成功");
     }
 

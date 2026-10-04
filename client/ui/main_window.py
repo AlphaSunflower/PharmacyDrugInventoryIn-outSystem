@@ -1,3 +1,5 @@
+import importlib
+
 from PyQt6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
                              QPushButton, QStackedWidget, QLabel, QMessageBox, QFrame)
 from PyQt6.QtCore import Qt, QSize, pyqtSignal, QTimer
@@ -14,6 +16,8 @@ class MainWindow(QMainWindow):
         self._prev_pending = 0
         self._prev_returned = 0
         self._badged_buttons = {}
+        self._view_factories = {}
+        self._view_widgets = {}
         self.initUI()
         self._start_notification_poller()
 
@@ -125,40 +129,70 @@ class MainWindow(QMainWindow):
     def load_views(self):
         role = api_client.user_role
         if role == 'ADMIN':
-            from ui.admin_views import UserManageView, LogView
-            self.content_stack.addWidget(UserManageView())
-            self.content_stack.addWidget(LogView())
+            specs = [
+                ("ui.admin_views", "UserManageView"),
+                ("ui.admin_views", "LogView"),
+            ]
         elif role == 'DOCTOR':
-            from ui.doctor_views import VisitCreateView, VisitHistoryView, DrugQueryView
-            from ui.pharmacist_views import StatsView
-            self.content_stack.addWidget(VisitCreateView())
-            self.content_stack.addWidget(VisitHistoryView())
-            self.content_stack.addWidget(DrugQueryView())
-            self.content_stack.addWidget(StatsView())
+            specs = [
+                ("ui.doctor_views", "VisitCreateView"),
+                ("ui.doctor_views", "VisitHistoryView"),
+                ("ui.doctor_views", "DrugQueryView"),
+                ("ui.pharmacist_views", "StatsView"),
+            ]
         elif role == 'PHARMACIST':
-            from ui.pharmacist_views import DispenseView, DispenseHistoryView, InventoryView, DrugManageView, StatsView, PurchaseView, PurchasePlanView
-            self.content_stack.addWidget(DispenseView())
-            self.content_stack.addWidget(DispenseHistoryView())
-            self.content_stack.addWidget(InventoryView())
-            self.content_stack.addWidget(DrugManageView())
-            self.content_stack.addWidget(PurchaseView())
-            self.content_stack.addWidget(PurchasePlanView())
-            self.content_stack.addWidget(StatsView())
+            specs = [
+                ("ui.pharmacist_views", "DispenseView"),
+                ("ui.pharmacist_views", "DispenseHistoryView"),
+                ("ui.pharmacist_views", "InventoryView"),
+                ("ui.pharmacist_views", "DrugManageView"),
+                ("ui.pharmacist_views", "PurchaseView"),
+                ("ui.pharmacist_views", "PurchasePlanView"),
+                ("ui.pharmacist_views", "StatsView"),
+            ]
         elif role == 'ROOT':
-            from ui.doctor_views import VisitCreateView, VisitHistoryView
-            from ui.pharmacist_views import DispenseView, DispenseHistoryView, InventoryView, DrugManageView, StatsView, PurchaseView, PurchasePlanView
-            self.content_stack.addWidget(VisitCreateView())
-            self.content_stack.addWidget(VisitHistoryView())
-            self.content_stack.addWidget(DispenseView())
-            self.content_stack.addWidget(DispenseHistoryView())
-            self.content_stack.addWidget(InventoryView())
-            self.content_stack.addWidget(DrugManageView())
-            self.content_stack.addWidget(PurchaseView())
-            self.content_stack.addWidget(PurchasePlanView())
-            self.content_stack.addWidget(StatsView())
+            specs = [
+                ("ui.doctor_views", "VisitCreateView"),
+                ("ui.doctor_views", "VisitHistoryView"),
+                ("ui.pharmacist_views", "DispenseView"),
+                ("ui.pharmacist_views", "DispenseHistoryView"),
+                ("ui.pharmacist_views", "InventoryView"),
+                ("ui.pharmacist_views", "DrugManageView"),
+                ("ui.pharmacist_views", "PurchaseView"),
+                ("ui.pharmacist_views", "PurchasePlanView"),
+                ("ui.pharmacist_views", "StatsView"),
+            ]
+        else:
+            specs = []
+
+        self._view_factories = {
+            index: self._make_view_factory(module_name, class_name)
+            for index, (module_name, class_name) in enumerate(specs)
+        }
+        for _ in specs:
+            self.content_stack.addWidget(QWidget())
 
         if self.menu_buttons:
             self.menu_buttons[0].click()
+
+    @staticmethod
+    def _make_view_factory(module_name, class_name):
+        def factory():
+            module = importlib.import_module(module_name)
+            return getattr(module, class_name)()
+        return factory
+
+    def _ensure_view_loaded(self, index):
+        if index in self._view_widgets or index not in self._view_factories:
+            return
+
+        placeholder = self.content_stack.widget(index)
+        view = self._view_factories[index]()
+        self.content_stack.insertWidget(index, view)
+        if placeholder is not None and placeholder is not view:
+            self.content_stack.removeWidget(placeholder)
+            placeholder.deleteLater()
+        self._view_widgets[index] = view
 
     # ==================== 通知系统 ====================
 
@@ -225,6 +259,7 @@ class MainWindow(QMainWindow):
     # ==================== 视图切换 ====================
 
     def switch_view(self, index, title):
+        self._ensure_view_loaded(index)
         self.content_stack.setCurrentIndex(index)
         self.header_label.setText(title)
         for i, btn in enumerate(self.menu_buttons):

@@ -398,7 +398,9 @@ public class StatsServiceImpl implements StatsService {
         List<PatientVisit> deptVisits = allVisits.stream()
                 .filter(v -> deptName.equals(v.getDepartment())).collect(Collectors.toList());
         int visitCount = deptVisits.size();
-        BigDecimal prescriptionAmount = BigDecimal.ZERO, traumaAmount = BigDecimal.ZERO;
+        BigDecimal prescriptionAmount = BigDecimal.ZERO, traumaAmount = BigDecimal.ZERO,
+                preparedMedicineAmount = BigDecimal.ZERO;
+        int preparedMedicineQuantity = 0;
 
         if (!deptVisits.isEmpty()) {
             List<Long> ids = deptVisits.stream().map(PatientVisit::getId).collect(Collectors.toList());
@@ -412,11 +414,20 @@ public class StatsServiceImpl implements StatsService {
                         .filter(d -> validDrugIds.contains(d.getDrugId()))
                         .map(VisitDrug::getAmount).filter(Objects::nonNull)
                         .reduce(BigDecimal.ZERO, BigDecimal::add);
+                int visitQuantity = drugs.stream()
+                        .filter(d -> validDrugIds.contains(d.getDrugId()))
+                        .map(VisitDrug::getQuantity).filter(Objects::nonNull)
+                        .mapToInt(Integer::intValue).sum();
                 prescriptionAmount = prescriptionAmount.add(visitTotal);
 
                 String dName = diagMap.getOrDefault(v.getDiagnosisId(), "");
                 if (v.getCustomDiagnosis() != null) dName += v.getCustomDiagnosis();
                 if (dName.contains("外伤")) traumaAmount = traumaAmount.add(visitTotal);
+                String diagnosisName = diagMap.getOrDefault(v.getDiagnosisId(), "");
+                if (diagnosisName != null && diagnosisName.contains("备药")) {
+                    preparedMedicineAmount = preparedMedicineAmount.add(visitTotal);
+                    preparedMedicineQuantity += visitQuantity;
+                }
             }
         }
 
@@ -425,6 +436,8 @@ public class StatsServiceImpl implements StatsService {
         row.put("visitCount", visitCount);
         row.put("prescriptionAmount", prescriptionAmount);
         row.put("traumaAmount", traumaAmount);
+        row.put("preparedMedicineAmount", preparedMedicineAmount);
+        row.put("preparedMedicineQuantity", preparedMedicineQuantity);
         return row;
     }
 
@@ -447,6 +460,8 @@ public class StatsServiceImpl implements StatsService {
             vo.put("visitCount", row.get("visitCount"));
             vo.put("prescriptionAmount", row.get("prescriptionAmount"));
             vo.put("traumaAmount", row.get("traumaAmount"));
+            vo.put("preparedMedicineAmount", row.get("preparedMedicineAmount"));
+            vo.put("preparedMedicineQuantity", row.get("preparedMedicineQuantity"));
             if (i == 0) {
                 vo.put("leaderMedicineAmount", leaderAmt);
                 vo.put("initialStockAmount", initStock);
@@ -495,6 +510,7 @@ public class StatsServiceImpl implements StatsService {
             row.put("actualStock", d.getActualStock());
             row.put("discrepancy", d.getDiscrepancy());
             row.put("remark", d.getRemark());
+            row.put("logContent", d.getLogContent());
             rows.add(row);
         }
         result.put("details", rows);

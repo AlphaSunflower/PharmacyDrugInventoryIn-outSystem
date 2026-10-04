@@ -20,6 +20,12 @@ public class WorkloadSummaryExcel {
     @ExcelProperty("外伤处理金额")
     private BigDecimal traumaAmount;
 
+    @ExcelProperty("备药金额")
+    private BigDecimal preparedMedicineAmount;
+
+    @ExcelProperty("备药数量")
+    private Integer preparedMedicineQuantity;
+
     @ExcelProperty("领导拿药金额")
     @ColumnWidth(15)
     private BigDecimal leaderMedicineAmount;
