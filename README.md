@@ -68,6 +68,61 @@ set API_BASE_URL=http://your-server:8080
 
 默认管理员账号：`admin` / `123456`
 
+## Docker Compose 部署
+
+仓库已包含 MySQL 初始化备份和后端镜像配置：
+
+```bash
+# 1. 创建本地环境变量文件
+cp .env.example .env
+
+# 2. 修改 .env 中的数据库密码和 JWT_SECRET
+
+# 3. 构建并启动
+docker compose up -d --build
+```
+
+默认端口：
+
+| 服务 | 宿主机端口 | 容器端口 |
+|------|------------|----------|
+| 后端 API | `9876` | `9876` |
+| MySQL | `3309` | `3306` |
+
+MySQL 首次创建数据卷时会自动导入：
+
+```text
+docker/mysql/init/01-pharmacy_db.sql
+```
+
+查看状态和日志：
+
+```bash
+docker compose ps
+docker compose logs -f backend
+```
+
+### 数据库自动备份
+
+`mysql-backup` 容器启动后立即执行一次备份，之后每天凌晨 `00:00` 按
+`Asia/Shanghai` 时区执行。备份成功后，会删除前一天及更早的 SQL 文件。
+
+备份文件保存在：
+
+```text
+backups/pharmacy_db_YYYY-MM-DD_HH-MM-SS.sql
+```
+
+管理员可在客户端“操作日志”页面点击“下载数据库备份”，接口会返回最新备份文件。
+
+### 生产部署补充
+
+- 建议通过 Nginx 或网关为 `9876` 配置 HTTPS，不直接暴露明文 HTTP。
+- `3309` 是 MySQL 宿主机映射端口，生产环境应通过防火墙限制来源 IP。
+- 本地备份目录应与服务器磁盘分离，建议额外同步到对象存储或其他主机。
+- 定期执行 SQL 恢复演练，确认备份文件可导入并保持数据完整。
+- `.env` 不应提交到 Git，数据库密码和 `JWT_SECRET` 应使用强随机值。
+
 ## 客户端打包
 
 使用 PyInstaller 将 PyQt6 客户端打包为独立可执行文件：

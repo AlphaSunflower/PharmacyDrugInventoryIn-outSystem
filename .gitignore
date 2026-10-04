@@ -33,6 +33,10 @@ Thumbs.db
 # Logs
 *.log
 
+# Database backups
+backups/*.sql
+backups/*.tmp
+
 # Environment / secrets
 .env
 .env.local

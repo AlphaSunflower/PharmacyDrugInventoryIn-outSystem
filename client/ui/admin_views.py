@@ -1,8 +1,9 @@
 from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QLabel, QTableWidget, 
                              QTableWidgetItem, QHBoxLayout, QMessageBox, 
                              QDialog, QFormLayout, QLineEdit, QComboBox, QHeaderView, QFrame, QTextEdit,
-                             QGridLayout)
+                             QGridLayout, QFileDialog)
 import json
+from datetime import datetime
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QColor
 from utils.api_client import api_client
@@ -357,6 +358,10 @@ class LogView(QWidget):
         search_btn = ModernButton("查询", variant="primary")
         search_btn.clicked.connect(self.load_data)
         top_layout.addWidget(search_btn)
+
+        backup_btn = ModernButton("下载数据库备份", variant="outline")
+        backup_btn.clicked.connect(self.download_database_backup)
+        top_layout.addWidget(backup_btn)
         
         del_all_btn = ModernButton("清空所有日志", variant="danger")
         del_all_btn.clicked.connect(self.delete_all_logs)
@@ -424,6 +429,27 @@ class LogView(QWidget):
         layout.addWidget(table_card)
         
         self.setLayout(layout)
+
+    def download_database_backup(self):
+        default_name = f"pharmacy_db_{datetime.now():%Y-%m-%d_%H-%M-%S}.sql"
+        file_path, _ = QFileDialog.getSaveFileName(
+            self, "保存数据库备份", default_name, "SQL Files (*.sql)")
+        if not file_path:
+            return
+
+        try:
+            res = api_client.get("/database-backups/latest")
+            if res.status_code == 200:
+                with open(file_path, "wb") as file:
+                    file.write(res.content)
+                ModernMessageBox.information(self, "成功", "数据库备份下载成功")
+                return
+
+            data = api_client.safe_json(res) or {}
+            ModernMessageBox.critical(
+                self, "失败", data.get("message", "暂无可下载的数据库备份"))
+        except Exception as e:
+            ModernMessageBox.critical(self, "错误", f"下载数据库备份失败: {e}")
 
     def load_data(self):
         keyword = self.search_input.text()

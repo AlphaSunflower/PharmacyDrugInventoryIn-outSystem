@@ -1,0 +1,11 @@
+.git
+.hermes
+.env
+.venv
+client
+database
+backups
+docker/mysql/init
+**/target
+**/__pycache__
+*.log

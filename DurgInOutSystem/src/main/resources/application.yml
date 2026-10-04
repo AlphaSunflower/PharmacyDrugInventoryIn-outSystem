@@ -23,3 +23,6 @@ mybatis-plus:
 logging:
   level:
     com.gcky.durginoutsystem.mapper: info
+
+backup:
+  directory: ${BACKUP_DIR:./backups}
